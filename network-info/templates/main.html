@@ -23,6 +23,10 @@
 <p>
 <h2>{{ title }}</h2>
 
+{% if ethermac: %}
+Ethernet MAC address: {{ ethermac }} <br>
+{% endif %}
+
 {% if ethernet: %}
 Ethernet IP address: {{ ethernet }} <br>
 <a href="http://{{ ethernet }}/">http://{{ ethernet }}/</a> <p>
