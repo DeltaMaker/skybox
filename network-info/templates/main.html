@@ -1,0 +1,46 @@
+<!-- 
+--  Filename: ~/skybox/network-info/templates/main.html
+--
+--  Sample webpage to display Network Info, specificaly the IP addressed of the
+--  Ethernet and WiFi iterfaces.  Useful to determine the DHCP-assigned Ethernet IP
+--  of the DeltaMaker when it is connected to an Ethernet network.  Since the WiFi
+--  access point has a static IP, simply connect to the DeltaMaker_WiFi access point
+--  and browse to http://192.168.10.1/info after the Ethernet cable is plugged-in.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport"
+     content="width=device-width, initial-scale=1, user-scalable=yes">
+  <title>{{ title }}</title>
+  <link href="info/static/style.css" rel="stylesheet">
+</head>
+<body>
+
+<img src="/info/static/deltamaker-logo-web.png" alt="DeltaMaker Logo" style="width:136px;height:146px;">
+<p>
+<h2>{{ title }}</h2>
+
+{% if ethernet: %}
+Ethernet IP address: {{ ethernet }} <br>
+<a href="http://{{ ethernet }}/">http://{{ ethernet }}/</a> <p>
+{% else %}
+Ethernet IP address is not set. <p>
+{% endif %}
+
+{% if wifi: %}
+WiFi IP address: {{ wifi }} <br>
+<a href="http://{{ wifi }}/">http://{{ wifi }}/</a> <p>
+{% else %}
+WiFi IP address is not set. <p>
+{% endif %}
+
+{% if hostname: %}
+Bonjour name: {{ hostname }} <br>
+<a href="http://{{ hostname }}/">http://{{ hostname }}/</a> <p>
+{% endif %}
+
+</body>
+</html>

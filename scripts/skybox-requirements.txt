@@ -1,0 +1,8 @@
+# This file describes the Python virtualenv package requirements for
+# the Skybox software. These package requirements are
+# typically installed via the command:
+#   pip install -r skybox-requirements.txt
+mediapipe-rpi4
+#opencv-contrib-python==4.1.0.25
+opencv-contrib-python
+flask
