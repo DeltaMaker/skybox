@@ -1,6 +1,11 @@
 #!/bin/bash
 # This script installs Skybox on a Raspberry Pi
 
+
+
+# sudo apt-get install libqt5gui5 libqt5webkit5 libqt5test5
+
+
 PYTHONDIR="${HOME}/skybox-env"
 
 # Step 1: Install system packages
@@ -11,8 +16,8 @@ install_packages()
     # opencv requirements
     PKGLIST="${PKGLIST} libhdf5-dev libhdf5-serial-dev"
     PKGLIST="${PKGLIST} libatlas-base-dev libjasper-dev"
-    PKGLIST="${PKGLIST} libqtgui4 libqt4-test"
-    PKGLIST="${PKGLIST} libilmbase23 libopenexr-dev"
+    PKGLIST="${PKGLIST} libqt5gui5 libqt5test5"
+    PKGLIST="${PKGLIST} libilmbase25 libopenexr-dev"
 
     # Update system package info
     report_status "Running apt-get update..."
