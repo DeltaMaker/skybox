@@ -9,12 +9,12 @@ PYTHONDIR="${HOME}/skybox-env"
 install_packages()
 {
     # Packages for python cffi
-    PKGLIST="virtualenv python-dev libffi-dev build-essential"
+    #PKGLIST="virtualenv python-dev libffi-dev build-essential"
     # opencv requirements
-    PKGLIST="${PKGLIST} libhdf5-dev libhdf5-serial-dev"
-    PKGLIST="${PKGLIST} libatlas-base-dev libjasper-dev"
-    PKGLIST="${PKGLIST} libqtgui4 libqt4-test"
-    PKGLIST="${PKGLIST} libilmbase23 libopenexr-dev"
+    #PKGLIST="${PKGLIST} libhdf5-dev libhdf5-serial-dev"
+    #PKGLIST="${PKGLIST} libatlas-base-dev libjasper-dev"
+    #PKGLIST="${PKGLIST} libqtgui4 libqt4-test"
+    #PKGLIST="${PKGLIST} libilmbase23 libopenexr-dev"
 
     # Update system package info
     report_status "Running apt-get update..."
@@ -31,7 +31,7 @@ create_virtualenv()
     report_status "Updating python virtual environment..."
 
     # Create virtualenv if it doesn't already exist
-    [ ! -d ${PYTHONDIR} ] && virtualenv -p python3 ${PYTHONDIR}
+    [ ! -d ${PYTHONDIR} ] && python3 -m venv ${PYTHONDIR}
 
     # Install/update dependencies
     ${PYTHONDIR}/bin/pip install -r ${SRCDIR}/scripts/skybox-requirements.txt
