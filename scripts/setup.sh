@@ -10,19 +10,14 @@ install_packages()
 {
     # Packages for python cffi
     PKGLIST="virtualenv python-dev libffi-dev build-essential"
-    # opencv requirements
-    PKGLIST="${PKGLIST} libhdf5-dev libhdf5-serial-dev"
-    PKGLIST="${PKGLIST} libatlas-base-dev libjasper-dev"
-    PKGLIST="${PKGLIST} libqtgui4 libqt4-test"
-    PKGLIST="${PKGLIST} libilmbase23 libopenexr-dev"
 
     # Update system package info
     report_status "Running apt-get update..."
     sudo apt-get update
 
     # Install desired packages
-    report_status "Installing packages..."
-    sudo apt-get install --yes ${PKGLIST}
+    ## report_status "Installing packages..."
+    ## sudo apt-get install --yes ${PKGLIST}
 }
 
 # Step 2: Create python virtual environment
@@ -95,6 +90,6 @@ SRCDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )"/.. && pwd )"
 verify_ready
 install_packages
 create_virtualenv
-install_script
-install_config
-start_software
+## install_script
+## install_config
+## start_software
