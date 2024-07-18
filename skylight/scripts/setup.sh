@@ -3,6 +3,7 @@
 
 PYTHONDIR="${HOME}/skybox-env"
 AIVISIONDIR="${HOME}/AIVisionApp"
+CONF_ARGS="-d ${AIVISIONDIR}/examples -f localhost.conf"
 
 # Step 1: Install system packages
 install_packages()
@@ -51,9 +52,9 @@ install_config()
 
 SKYBOX_USER=$USER
 
-SKYBOX_EXEC="sudo ${PYTHONDIR}/bin/python"
+SKYBOX_EXEC="${PYTHONDIR}/bin/python"
 
-SKYBOX_ARGS="${AIVISIONDIR}/skylight/skylight_server.py -f ${AIVISIONDIR}/examples/localhost.conf"
+SKYBOX_ARGS="${AIVISIONDIR}/skylight/skylight_server.py ${CONF_ARGS}"
 
 EOF
 }
