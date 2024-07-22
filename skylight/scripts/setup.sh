@@ -50,7 +50,7 @@ install_config()
     sudo /bin/sh -c "cat > $DEFAULTS_FILE" <<EOF
 # Configuration for /etc/init.d/skylight
 
-SKYBOX_USER=$USER
+SKYBOX_USER=root
 
 SKYBOX_EXEC="${PYTHONDIR}/bin/python"
 
