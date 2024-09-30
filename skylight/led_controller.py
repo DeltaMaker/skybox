@@ -195,10 +195,14 @@ class LEDController:
                 self.select_color(progress >= index, color, bg_color, offset_index)
             elif mode == "fade":
                 self.set_color(fade_color, offset_index)
-            elif mode in ["output", "binary"]:
+            elif mode in ["output", "count", "binary"]:
                 self.select_color(value[index] == '1', color, bg_color, offset_index)
             elif mode == "blink":
-                self.set_color("black" if (step - index) % length == 0 else color, offset_index)
+                # self.set_color("black" if (step - index) % length == 0 else color, offset_index)
+                if (step - index) % length == 0:
+                    self.set_color("black")
+                else:
+                    self.select_color(value[index] == '1', color, bg_color, offset_index)
             elif mode == "blend":
                 self.select_color(value[index] == '1', blend_color, bg_color, offset_index)
             elif mode == "breathe":
