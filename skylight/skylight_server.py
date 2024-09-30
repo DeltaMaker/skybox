@@ -70,7 +70,7 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             "skylight": {
                 "status": "on",
                 "chain_count": led_count,
-                "display_mode": "rainbow",
+                "preset_scene": "rainbow",
                 "brightness": 50,
                 "error": None
             },
@@ -137,15 +137,14 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
         return "rainbow", 0
 
     def update_skylight(self, root):
-        if self.current_state['skylight']['display_mode'] == "skybox":
+        if self.current_state['skylight']['preset_scene'] == "skybox":
             return
-
         try:
-            display_mode, percent = self.determine_mode()
-            if display_mode != self.current_state['skylight']['display_mode']:
-                self.current_state['skylight']['display_mode'] = display_mode
+            preset_scene, percent = self.determine_mode()
+            if preset_scene != self.current_state['skylight']['preset_scene']:
+                self.current_state['skylight']['preset_scene'] = preset_scene
 
-                formats = self.current_state["preset_formats"].get(display_mode, [])
+                formats = self.current_state["preset_formats"].get(preset_scene, [])
                 self.set_scene_format(formats)
             else:
                 self.set_scene_values(percent)
@@ -155,6 +154,7 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
     def show_preset(self, name):
         format_data = self.current_state["preset_formats"].get(name, [])
         if format_data:
+            self.current_state['skylight']['preset_scene'] = name
             self.set_scene_format(format_data)
 
     def set_scene_format(self, formats):
@@ -171,7 +171,8 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
         if not isinstance(values, list):
             values = [values] * n_values
         for i in range(n_values):
-            self.current_state["scene"][i][1] = values[i]
+            if i < len(values):
+                self.current_state["scene"][i][1] = values[i]
 
         self.led_controller.set_data_values(values)
 
@@ -213,15 +214,14 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             combined_params = {**query_params, **post_params}
             if "format" in combined_params:
                 format_data = json.loads(combined_params["format"])
+                self.current_state['skylight']['preset_scene'] = "skybox"
                 self.set_scene_format(format_data)
             if "values" in combined_params:
                 values = json.loads(combined_params["values"])
                 self.set_scene_values(values)
             if "preset" in combined_params:
                 preset_name = combined_params["preset"]
-                print(f'preset = {preset_name}')
                 self.show_preset(preset_name)
-
             return web.json_response({"status": "success", "scene": self.current_state["scene"]})
 
         return web.Response(status=404, text=f"{path} Not Found")

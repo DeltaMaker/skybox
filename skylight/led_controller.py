@@ -61,7 +61,7 @@ class LEDController:
     def show_strip(self):
         #with self.lock:
         self.strip.show()
-        self.pixels = ColorUtils.scale_pixels(self.pixels, self.brightness)
+
 
     def set_data_fields(self, init_data_fields):
         #with self.lock:
@@ -69,6 +69,7 @@ class LEDController:
             self.data_fields = []
             self.data_values = []
             start = 0
+            #print(init_data_fields)
             for field in init_data_fields:
                 mode, value, length, color, bg_color, pad = field
                 if isinstance(length, int):
@@ -83,6 +84,8 @@ class LEDController:
 
     def set_data_values(self, new_values):
         with self.lock:
+            if len(new_values) > len(self.data_fields):
+                return
             for i, value in enumerate(new_values):
                 mode, length, _, _, _ = self.data_fields[i]
                 self.data_values[i] = self.process_value(value, length, mode)
@@ -154,6 +157,10 @@ class LEDController:
         #print ('effects_loop')
         sleep_time = 0.010
         with self.lock:
+            if self.brightness < 0.01:
+                self.clear()
+                return
+
             for count in range(self.led_count):
                 self.effect_step = (self.effect_step + 1) % self.num_steps
                 breathe_factor = self.breathe_factors[self.effect_step]
@@ -175,29 +182,36 @@ class LEDController:
                 time.sleep(sleep_time)
 
     def apply_mode(self, mode, step, index, length, offset_index, progress, color, bg_color, fade_color, blend_color, breathe_color, breathe_bg_color, value):
-        if mode == "chase":
-            self.select_color((int(step/3) - index) % length == 0, color, bg_color, offset_index)
-        elif mode == "progress":
-            self.select_color(progress >= index, color, bg_color, offset_index)
-        elif mode == "fade":
-            self.set_color(fade_color, offset_index)
-        elif mode == "output":
-            self.select_color(value[index] == '1', color, bg_color, offset_index)
-        elif mode == "blink":
-            self.set_color("black" if (step - index) % length == 0 else color, offset_index)
-        elif mode == "blend":
-            self.select_color(value[index] == '1', blend_color, bg_color, offset_index)
-        elif mode == "breathe":
-            self.select_color(value[index] == '1', breathe_color, breathe_bg_color, offset_index)
-        elif mode == "rainbow":
-            # need to be tested
-            pos = (index * 256 // self.led_count) + step
-            self.set_color(ColorUtils.wheel(pos), offset_index)
+        try:
+            if mode == "chase":
+                self.select_color((int(step/3) - index) % length == 0, color, bg_color, offset_index)
+            elif mode == "progress":
+                self.select_color(progress >= index, color, bg_color, offset_index)
+            elif mode == "fade":
+                self.set_color(fade_color, offset_index)
+            elif mode in ["output", "binary"]:
+                self.select_color(value[index] == '1', color, bg_color, offset_index)
+            elif mode == "blink":
+                self.set_color("black" if (step - index) % length == 0 else color, offset_index)
+            elif mode == "blend":
+                self.select_color(value[index] == '1', blend_color, bg_color, offset_index)
+            elif mode == "breathe":
+                self.select_color(value[index] == '1', breathe_color, breathe_bg_color, offset_index)
+            elif mode == "rainbow":
+                # need to be tested
+                pos = (index * 256 // self.led_count) + step
+                self.set_color(ColorUtils.wheel(pos), offset_index)
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            print(f"mode={mode}, step={step}, index={index}, length={length}, offset_index={offset_index}, progress={progress}")
+            print(f"color={color}, bg_color={bg_color}, fade_color={fade_color}, blend_color={blend_color}")
+            print(f"breathe_color={breathe_color}, breathe_bg_color={breathe_bg_color}, value={value}")
+            raise e
 
     def process_value(self, value, length, mode):
         if isinstance(value, str):
             return value.ljust(length, '0')
-        if mode in ['breathe', 'blend']:
+        if mode in ['breathe', 'blend', 'output']:
             return '1' * length
         if mode == 'count':
             return ('1' * value).ljust(length, '0')
@@ -206,3 +220,4 @@ class LEDController:
         if isinstance(value, float):
             return max(min(value, 1.0), 0.0)
         return value
+
