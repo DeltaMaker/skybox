@@ -28,6 +28,7 @@ class LEDController:
         self.running = False
         self.lock = threading.Lock()
         self.effect_step = 0
+        self.reverse_order = True
 
         self.data_fields = []
         self.data_values = []
@@ -96,11 +97,16 @@ class LEDController:
             self.strip.brightness = brightness
             self.show_strip()
 
+    def set_reverse_order(self, reversed):
+        with self.lock:
+            self.reverse_order = reversed
+
     def set_color(self, color, index=None):
         color = self.get_color(color)
         scaled_color = ColorUtils.scale_color(color, self.brightness)
         #with self.lock:
         if index is not None and index < self.led_count:
+            index = self.led_count - index - 1 if self.reverse_order else index
             self.pixels[index] = scaled_color
             self.strip[index] = color
         else:
