@@ -1,0 +1,21 @@
+[Unit]
+Description=Skylight Daemon
+After=network.target
+
+[Service]
+# User must be explicitly defined
+User=root
+
+# Use an absolute path for WorkingDirectory
+WorkingDirectory=/home/pi/skybox/skylight
+
+# Hard-code the Python executable and config file path
+ExecStart=/home/pi/skybox-env/bin/python /home/pi/skybox/skylight/skylight_server.py --config-dir /home/pi/skybox/config/
+
+# Restart policy
+Restart=always
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
