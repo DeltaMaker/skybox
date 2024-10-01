@@ -7,4 +7,4 @@ RPi.GPIO
 adafruit-circuitpython-neopixel
 websockets
 mediapipe
-##scikit-learn
+scikit-learn

@@ -104,7 +104,7 @@ install_service() {
 # Step 6: Start the Skylight service
 start_service() {
     echo "[SERVICE] Starting Skylight service..."
-    sudo systemctl start skylight.service
+    sudo systemctl restart skylight.service
     echo "[SERVICE] Skylight service started!"
 }
 
@@ -118,6 +118,6 @@ verify_ready
 preflight_checks
 check_download
 create_virtualenv
-create_defaults_file
+#create_defaults_file
 install_service
 start_service
