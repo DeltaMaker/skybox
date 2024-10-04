@@ -106,8 +106,6 @@ class BaseWebSocketClient:
 
         # Extract the subscription command for the specified name
         subscribe_command = self.subscriptions[name]
-    
-        # Send the subscription command to the WebSocket server
         await websocket.send(json.dumps(subscribe_command))
 
         if self.debug:
@@ -121,8 +119,14 @@ class BaseWebSocketClient:
                 data = json.loads(message)
 
                 #print(f"data = {data}")
-
-                if 'method' in data and data['method'].endswith('update'):
+                if 'method' in data and data['method'] == 'notify_klippy_disconnected':
+                    if self.debug:
+                        print(f"Received 'notify_klippy_disconnected' for {name}. Attempting to reconnect...")
+                    # Stop the client and reconnect dynamically based on root
+                    await self.stop()
+                    # Reconnect and resubscribe dynamically
+                    await self.reconnect_to_service(root)
+                elif 'method' in data and data['method'].endswith('update'):
                     await self.update_state(data['params'][0], root)
                 elif 'result' in data and 'status' in data['result']:
                     await self.update_state(data['result']['status'], root)
@@ -148,16 +152,37 @@ class BaseWebSocketClient:
                     if self.debug:
                         print(f"Timeout detected for {root}: No broadcasts for {timeout_interval} seconds.")
                     # Trigger reconnection or resubscription for this root
-                    await self.reconnect_to_moonraker(root)
+                    await self.reconnect_to_service(root)
 
-    async def reconnect_to_moonraker(self, root):
-        """Reconnect to Moonraker and resubscribe to broadcasts for a specific root."""
+    async def reconnect_to_service(self, root):
+        """Reconnect to a service and resubscribe to broadcasts dynamically based on the root."""
         if self.debug:
-            print(f"Reconnecting to Moonraker for {root}...")
+            print(f"Reconnecting to service for {root}...")
 
-        # Optionally close the existing WebSocket connection and reconnect for the specific root
-        await self.connect_with_retries(self.moonraker_uri, root, "moonraker")
+        # Check if the connection exists for the given root and close it if it's open
+        if root in self.connections and self.connections[root].open:
+            await self.connections[root].close()
+            if self.debug:
+                print(f"Closed existing WebSocket connection for {root}.")
 
+        # Use the URI from self.connections for this specific root
+        service_uri = self.connections.get(root, {}).get("uri", None)
+
+        if not service_uri:
+            if self.debug:
+                print(f"No URI found for {root}, skipping reconnection.")
+            return
+
+        # Reconnect using the connection URI and the root
+        await self.connect_with_retries(service_uri, root, root)
+
+        # After reconnecting, resubscribe using the subscriptions for this root
+        if root in self.subscriptions:
+            subscribe_command = self.subscriptions[root]
+            await self.subscribe(subscribe_command, root)
+
+        if self.debug:
+            print(f"Successfully reconnected and resubscribed to {root}.")
 
     async def update_state(self, updated_objects, root):
         """Update the state dictionary with the objects that have changed."""
