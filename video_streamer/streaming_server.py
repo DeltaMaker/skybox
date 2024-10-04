@@ -17,11 +17,10 @@ import os
 from aiohttp import web
 import aiohttp
 import aiohttp.web
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from video_streamer.streaming_module import StreamingOutput, StreamingHandler, StreamingServer
 from config.config_manager import ConfigManager
-from video_streamer.overlay_manager import OverlayManager  # Import the new OverlayManager class
+from video_streamer.overlay_manager import OverlayManager
 
 
 class WebSocketFrameReceiver:

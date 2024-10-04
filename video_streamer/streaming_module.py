@@ -26,10 +26,9 @@ Version: 0.1
 
 import io
 import logging
-import signal
 import socketserver
 from http import server
-from threading import Condition, Thread
+from threading import Condition
 
 class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
