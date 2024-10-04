@@ -15,8 +15,6 @@ class OverlayManager:
     def update_default_values(self, shape_key, shape):
         if shape_key in self.default_shape_values:
             for key, value in shape.items():
-                print(f"  {key}: {value}")
-                #if key != "type":
                 self.default_shape_values[shape_key][key] = value
             #print(self.default_shape_values[shape_key])
             return self.default_shape_values[shape_key]

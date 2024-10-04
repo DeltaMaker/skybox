@@ -89,9 +89,9 @@ async def send_frames(websocket_url, video_source):
                     frame_data = base64.b64encode(buffer).decode('utf-8')
 
                     # may send with the raw frame or json with frame and overlay
-                    #message = buffer.tobytes() # raw frame data
-                    data = { "frame": frame_data, "overlay": overlay_shapes }
-                    message = json.dumps(data)  # json message
+                    message = buffer.tobytes() # raw frame data
+                    #data = { "frame": frame_data, "overlay": overlay_shapes }
+                    #message = json.dumps(data)  # json message
 
                     await websocket.send(message)
                     await asyncio.sleep(0.1)  # Adjust sleep time to control frame rate
