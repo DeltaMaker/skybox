@@ -17,6 +17,8 @@ import os
 from aiohttp import web
 import aiohttp
 import aiohttp.web
+import socket
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from video_streamer.streaming_module import StreamingOutput, StreamingHandler, StreamingServer
 from config.config_manager import ConfigManager
@@ -76,11 +78,29 @@ class WebSocketFrameReceiver:
         return ws
 
     async def http_handler(self, request):
-        """Handle HTTP requests to get the current overlay."""
+        """Handle HTTP requests to get the current status."""
+        peername = request.transport.get_extra_info('sockname')
+        server_ip = peername[0] if peername else 'Unknown IP'
+
         response_data = {'status': {
-            'connected': self.connected, 'current_overlay': self.current_overlay}
+            'connected': self.connected, 'host': self.get_server_ip(),
+            'current_overlay': self.current_overlay}
         }
         return web.json_response(response_data)
+
+    def get_server_ip(self):
+        """Get the local IP address of the server."""
+        try:
+            # Use a dummy socket connection to find the local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Doesn't matter if there's no internet connection; the IP address used for this is sufficient
+            s.connect(("8.8.8.8", 80))
+            ip_address = s.getsockname()[0]
+            s.close()
+        except Exception as e:
+            logging.error(f"Failed to get server IP: {e}")
+            ip_address = "127.0.0.1"  # Fallback to localhost
+        return ip_address
 
     async def start(self):
         """Start the combined HTTP and WebSocket server."""
