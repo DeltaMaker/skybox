@@ -1,6 +1,11 @@
+"""
+Author: Bob Houston
+Date: 2024-9-21
+Version: 0.2
+"""
+
 import time
 import asyncio
-import websockets
 import json
 import cv2
 import logging
@@ -9,14 +14,15 @@ from threading import Thread
 import base64
 import sys
 import os
+from aiohttp import web
+import aiohttp
+import aiohttp.web
 
-# Add the root directory of your project to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-# Importing the necessary classes from streaming_module
 from video_streamer.streaming_module import StreamingOutput, StreamingHandler, StreamingServer
-# Assuming ConfigManager is in the same directory or adjust the import path accordingly
 from config.config_manager import ConfigManager
 from video_streamer.overlay_manager import OverlayManager  # Import the new OverlayManager class
+
 
 class WebSocketFrameReceiver:
     def __init__(self, port, filepath):
@@ -35,23 +41,23 @@ class WebSocketFrameReceiver:
         _, buffer = cv2.imencode('.jpg', frame)
         return buffer
 
-    async def handler(self, websocket, path):
+    async def websocket_handler(self, request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
         self.connected = True
-        async for message in websocket:
+        async for message in ws:
             try:
-                # initialize frame if message does not include a new frame
-                #frame = self.current_frame
-                # Check if the message is a JSON string or raw binary data
-                if isinstance(message, str):
-                    data = json.loads(message)
+                # Process WebSocket message
+                if message.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(message.data)
                     if 'frame' in data:
                         frame_data = base64.b64decode(data['frame'])
                         self.current_frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                     if 'overlay' in data:
                         self.current_overlay = data['overlay']
-                        #frame = self.overlay_manager.draw_overlay_shapes(frame, data['overlay'])
-                else:
-                    frame_data = np.frombuffer(message, dtype=np.uint8)
+                elif message.type == aiohttp.WSMsgType.BINARY:
+                    frame_data = np.frombuffer(message.data, dtype=np.uint8)
                     self.current_frame = cv2.imdecode(frame_data, cv2.IMREAD_COLOR)
 
                 frame = self.current_frame
@@ -66,15 +72,43 @@ class WebSocketFrameReceiver:
                 _, jpeg = cv2.imencode('.jpg', frame)
                 self.output.update_frame(jpeg)
                 self.default_frame = jpeg
+
         self.connected = False
+        return ws
+
+    async def http_handler(self, request):
+        """Handle HTTP requests to get the current overlay."""
+        response_data = {'status': {
+            'connected': self.connected, 'current_overlay': self.current_overlay}
+        }
+        return web.json_response(response_data)
 
     async def start(self):
-        server = await websockets.serve(self.handler, '0.0.0.0', self.port)
-        await server.wait_closed()
+        """Start the combined HTTP and WebSocket server."""
+        app = web.Application()
+
+        # WebSocket route for real-time communication
+        app.router.add_route('GET', '/websocket', self.websocket_handler)
+
+        # HTTP route to query the current overlay
+        app.router.add_route('GET', '/status', self.http_handler)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+
+        # Start the server on the specified port (for both HTTP and WS)
+        site = web.TCPSite(runner, '0.0.0.0', self.port)
+        await site.start()
+
+        logging.info(f"Server started on port {self.port} (HTTP & WebSocket)")
+
+        # Run forever
+        while True:
+            await asyncio.sleep(3600)  # Keep the server running
+
 
 class WebSocketStreamer:
     def __init__(self, config_manager):
-        # Read configuration values
         stream_port = config_manager.getint('video_streamer', 'stream_port', fallback=8085)
         ws_port = config_manager.getint('video_streamer', 'ws_port', fallback=7130)
         filepath = config_manager.get('video_streamer', 'default_frame_filepath')
@@ -119,13 +153,11 @@ class WebSocketStreamer:
         self.ws_thread.join()
         self.default_frame_thread.join()
 
+
 def main():
-    # Initialize ConfigManager
     config_manager = ConfigManager(config_file="localhost.conf", config_dir="../config")
-    # Create log file (in /var/log or /tmp)
     logging.basicConfig(filename='/tmp/websocket_streamer.log', level=logging.INFO)
 
-    # Initialize and start the WebSocketStreamer
     streamer = WebSocketStreamer(config_manager)
     try:
         streamer.start()
@@ -136,6 +168,7 @@ def main():
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
         streamer.stop()
+
 
 if __name__ == "__main__":
     main()
