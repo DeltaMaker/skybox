@@ -234,7 +234,9 @@ class BaseWebSocketServer:
             print(f"Starting server at {self.host}:{self.port}")
         app = web.Application()
         app.router.add_get('/websocket', self.websocket_handler)
-        app.router.add_get('/printer/objects/query', self.handle_http_request)  # Add custom HTTP route
+        app.router.add_get('/printer/objects/query', self.handle_http_request)
+        app.router.add_post('/printer/objects/update', self.handle_http_request)
+        #app.router.add_route('*', '/printer/objects/query', self.handle_http_request)
         self.add_custom_routes(app.router)
 
         app.on_startup.append(self.start_background_tasks)

@@ -117,11 +117,10 @@ class BaseWebSocketClient:
             try:
                 message = await websocket.recv()
                 data = json.loads(message)
-
                 #print(f"data = {data}")
-                if 'method' in data and data['method'] == 'notify_klippy_disconnected':
+                if 'method' in data and data['method'].endswith('disconnected'):
                     if self.debug:
-                        print(f"Received 'notify_klippy_disconnected' for {name}. Attempting to reconnect...")
+                        print(f"Received '{data['method']}' for {name}. Attempting to reconnect...")
                     # Stop the client and reconnect dynamically based on root
                     await self.stop()
                     # Reconnect and resubscribe dynamically
