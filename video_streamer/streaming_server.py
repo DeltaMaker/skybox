@@ -34,6 +34,7 @@ class WebSocketFrameReceiver:
         self.overlay_manager = OverlayManager()
         self.current_frame = None
         self.current_overlay = None
+        self.stream_addr = ""
 
     def initialize_default_frame(self, filepath):
         frame = cv2.imread(filepath, cv2.IMREAD_COLOR)
@@ -80,24 +81,10 @@ class WebSocketFrameReceiver:
     async def http_handler(self, request):
         """Handle HTTP requests to get the current status."""
         response_data = {'status': {
-            'connected': self.connected, 'host': self.get_server_ip(),
+            'connected': self.connected, 'stream': self.stream_addr,
             'current_overlay': self.current_overlay}
         }
         return web.json_response(response_data)
-
-    def get_server_ip(self):
-        """Get the local IP address of the server."""
-        try:
-            # Use a dummy socket connection to find the local IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # Doesn't matter if there's no internet connection; the IP address used for this is sufficient
-            s.connect(("8.8.8.8", 80))
-            ip_address = s.getsockname()[0]
-            s.close()
-        except Exception as e:
-            logging.error(f"Failed to get server IP: {e}")
-            ip_address = "127.0.0.1"  # Fallback to localhost
-        return ip_address
 
     async def start(self):
         """Start the combined HTTP and WebSocket server."""
@@ -134,7 +121,22 @@ class WebSocketStreamer:
         self.server = StreamingServer(('0.0.0.0', stream_port), StreamingHandler)
         self.ws_receiver = WebSocketFrameReceiver(ws_port, filepath)
         self.ws_receiver.output = self.output
+        self.ws_receiver.stream_addr = f'http://{self.get_server_ip()}:{stream_port}'
         self.is_running = False
+
+    def get_server_ip(self):
+        """Get the local IP address of the server."""
+        try:
+            # Use a dummy socket connection to find the local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Doesn't matter if there's no internet connection; the IP address used for this is sufficient
+            s.connect(("8.8.8.8", 80))
+            ip_address = s.getsockname()[0]
+            s.close()
+        except Exception as e:
+            logging.error(f"Failed to get server IP: {e}")
+            ip_address = "127.0.0.1"  # Fallback to localhost
+        return ip_address
 
     def start(self):
         self.is_running = True
