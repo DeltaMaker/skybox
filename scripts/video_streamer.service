@@ -1,0 +1,21 @@
+[Unit]
+Description=Video Streamer Daemon
+After=network.target
+
+[Service]
+# User must be explicitly defined
+User=pi
+
+# Use an absolute path for WorkingDirectory
+WorkingDirectory=/home/pi/skybox/video_streamer
+
+# Hard-code the Python executable and config file path
+ExecStart=/home/pi/skybox-env/bin/python /home/pi/skybox/video_streamer/streaming_server.py --config-dir /home/pi/skybox/config/
+
+# Restart policy
+Restart=always
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
