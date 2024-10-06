@@ -79,9 +79,6 @@ class WebSocketFrameReceiver:
 
     async def http_handler(self, request):
         """Handle HTTP requests to get the current status."""
-        peername = request.transport.get_extra_info('sockname')
-        server_ip = peername[0] if peername else 'Unknown IP'
-
         response_data = {'status': {
             'connected': self.connected, 'host': self.get_server_ip(),
             'current_overlay': self.current_overlay}
