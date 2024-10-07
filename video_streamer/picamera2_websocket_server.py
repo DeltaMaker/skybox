@@ -119,7 +119,9 @@ class Picamera2Server:
                     resized_frame = self.get_resized_frame(frame, client_size)
 
                     # Send the resized frame in binary format
+                    print(f"Sending frame to client with size={client_size}")  # Add this log for each client
                     await ws.send_bytes(resized_frame)
+
         except Exception as e:
             logging.error(f"Error sending frames: {e}")
 
