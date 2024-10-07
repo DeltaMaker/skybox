@@ -53,28 +53,37 @@ class Picamera2Server:
 
         try:
             # Receive client subscription settings
-            config_message = await ws.receive_str()
-            config = json.loads(config_message)
+            config_message = await ws.receive()
 
-            # Extract custom frame size and FPS from client subscription
-            custom_size = tuple(config.get('size', (640, 480)))  # Default to 640x480 if not provided
-            custom_fps = config.get('fps', 15)  # Default to 15 FPS if not provided
+            # Check the message type
+            if config_message.type == web.WSMsgType.TEXT:
+                config = json.loads(config_message.data)
 
-            print(f"New client subscribed with size={custom_size}, fps={custom_fps}")
+                # Extract custom frame size and FPS from client subscription
+                custom_size = tuple(config.get('size', (640, 480)))  # Default to 640x480 if not provided
+                custom_fps = config.get('fps', 15)  # Default to 15 FPS if not provided
 
-            # Start the camera with the first client's resolution
-            if not self.running:
-                self.start_camera(custom_size, custom_fps)
-                self.base_size = custom_size  # Set the camera resolution
+                print(f"New client subscribed with size={custom_size}, fps={custom_fps}")
 
-            # Add client to the list with their settings
-            self.clients[ws] = {
-                'size': custom_size,
-                'fps': custom_fps
-            }
+                # Start the camera with the first client's resolution
+                if not self.running:
+                    self.start_camera(custom_size, custom_fps)
+                    self.base_size = custom_size  # Set the camera resolution
 
-            # Continuously send frames to the client
-            await self.send_frames(ws)
+                # Add client to the list with their settings
+                self.clients[ws] = {
+                    'size': custom_size,
+                    'fps': custom_fps
+                }
+
+                # Continuously send frames to the client
+                await self.send_frames(ws)
+
+            elif config_message.type == web.WSMsgType.CLOSE:
+                print("Client closed connection")
+
+            else:
+                print(f"Received unexpected WebSocket message type: {config_message.type}")
 
         except websockets.ConnectionClosed:
             print(f"Client disconnected")
