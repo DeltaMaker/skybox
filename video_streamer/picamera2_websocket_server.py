@@ -10,6 +10,7 @@ import logging
 import json
 import cv2
 import numpy as np
+from aiohttp import web
 
 
 class Picamera2Server:
@@ -24,16 +25,35 @@ class Picamera2Server:
         self.frame_cache = {}  # Cache to store resized frames by size
 
     async def start_server(self):
-        """Start the WebSocket server."""
-        async with websockets.serve(self.handle_client, self.host, self.port):
-            print(f"Picamera2 WebSocket server started at ws://{self.host}:{self.port}")
-            await asyncio.Future()  # Keep running forever
+        """Start the combined HTTP and WebSocket server."""
+        # Create the aiohttp app
+        app = web.Application()
 
-    async def handle_client(self, websocket, path):
+        # Add routes for WebSocket and HTTP requests
+        app.router.add_route('GET', '/websocket', self.websocket_handler)
+        app.router.add_route('GET', '/status', self.http_handler)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+
+        # Start both WebSocket and HTTP on the same port
+        site = web.TCPSite(runner, self.host, self.port)
+        await site.start()
+
+        print(f"Server started on ws://{self.host}:{self.port} (WebSocket and HTTP)")
+
+        # Keep the server running indefinitely
+        while True:
+            await asyncio.sleep(3600)
+
+    async def websocket_handler(self, request):
         """Handle client subscriptions for camera frames."""
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
         try:
             # Receive client subscription settings
-            config_message = await websocket.recv()
+            config_message = await ws.receive_str()
             config = json.loads(config_message)
 
             # Extract custom frame size and FPS from client subscription
@@ -48,43 +68,54 @@ class Picamera2Server:
                 self.base_size = custom_size  # Set the camera resolution
 
             # Add client to the list with their settings
-            self.clients[websocket] = {
+            self.clients[ws] = {
                 'size': custom_size,
                 'fps': custom_fps
             }
 
             # Continuously send frames to the client
-            await self.send_frames(websocket)
+            await self.send_frames(ws)
 
         except websockets.ConnectionClosed:
             print(f"Client disconnected")
         finally:
             # Remove client from the list
-            if websocket in self.clients:
-                del self.clients[websocket]
+            if ws in self.clients:
+                del self.clients[ws]
 
             # Stop the camera if no clients are connected
             if not self.clients:
                 self.stop_camera()
 
-    async def send_frames(self, websocket):
+        return ws
+
+    async def send_frames(self, ws):
         """Send frames to a connected client."""
         try:
-            while websocket in self.clients:
-                await asyncio.sleep(1 / self.clients[websocket]['fps'])  # Adjust frame sending rate
+            while ws in self.clients:
+                await asyncio.sleep(1 / self.clients[ws]['fps'])  # Adjust frame sending rate
 
                 # Get the latest frame and resize it if necessary
                 frame = self.output.frame
                 if frame:
-                    client_size = self.clients[websocket]['size']
+                    client_size = self.clients[ws]['size']
 
                     # Get the resized frame for the client's requested size from the cache
                     resized_frame = self.get_resized_frame(frame, client_size)
 
                     # Send the resized frame in binary format
-                    await websocket.send(resized_frame)
+                    await ws.send_bytes(resized_frame)
         except Exception as e:
             logging.error(f"Error sending frames: {e}")
+
+    async def http_handler(self, request):
+        """Handle HTTP requests to get the current status of connected clients."""
+        clients_status = [{'size': client_info['size'], 'fps': client_info['fps']}
+                          for client_info in self.clients.values()]
+        return web.json_response({
+            'status': 'running' if self.running else 'stopped',
+            'subscribers': clients_status
+        })
 
     def start_camera(self, size, frame_rate):
         """Start the camera with the specified size and frame rate."""
@@ -152,8 +183,8 @@ class StreamingOutput(io.BufferedIOBase):
 
 
 def main():
-    # Initialize and run the Picamera2 WebSocket server
-    camera_server = Picamera2Server(host='0.0.0.0', port=8000)
+    # Initialize and run the Picamera2 WebSocket and HTTP server
+    camera_server = Picamera2Server(host='0.0.0.0', port=7130)
 
     try:
         # Start the WebSocket server
