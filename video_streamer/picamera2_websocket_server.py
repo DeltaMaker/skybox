@@ -23,6 +23,8 @@ class Picamera2Server:
         self.running = False
         self.base_size = None  # The camera's current resolution
         self.frame_cache = {}  # Cache to store resized frames by size
+        self.frame_version = 0  # Track frame version
+        self.frame_clients = {}  # Track clients that have received each frame
 
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
@@ -116,11 +118,20 @@ class Picamera2Server:
                     client_size = self.clients[ws]['size']
 
                     # Get the resized frame for the client's requested size from the cache
-                    resized_frame = self.get_resized_frame(frame, client_size)
+                    resized_frame, frame_version = self.get_resized_frame(frame, client_size)
 
                     # Send the resized frame in binary format
-                    print(f"Sending frame to client with size={client_size}")  # Add this log for each client
                     await ws.send_bytes(resized_frame)
+
+                    # Mark the client as having received this frame version
+                    if frame_version not in self.frame_clients:
+                        self.frame_clients[frame_version] = set()
+
+                    self.frame_clients[frame_version].add(ws)
+
+                    # If all clients have received this frame version, remove it from the cache
+                    if len(self.frame_clients[frame_version]) == len(self.clients):
+                        self.clear_frame_cache(frame_version)
 
         except Exception as e:
             logging.error(f"Error sending frames: {e}")
@@ -158,11 +169,11 @@ class Picamera2Server:
         If the client's requested size matches the camera's base size, no resizing is done.
         """
         if self.base_size == client_size:
-            return frame  # No resizing needed, return the original frame
+            return frame, self.frame_version  # No resizing needed, return the original frame
 
         # Check if the resized frame is already in the cache
         if client_size in self.frame_cache:
-            return self.frame_cache[client_size]
+            return self.frame_cache[client_size], self.frame_version
 
         # Convert the binary frame (MJPEG) to an image
         np_arr = np.frombuffer(frame, np.uint8)
@@ -177,7 +188,16 @@ class Picamera2Server:
         # Store the resized frame in the cache
         self.frame_cache[client_size] = resized_frame.tobytes()
 
-        return self.frame_cache[client_size]
+        # Increment the frame version after resizing
+        self.frame_version += 1
+
+        return self.frame_cache[client_size], self.frame_version
+
+    def clear_frame_cache(self, frame_version):
+        """Clear the cache for the given frame version after all clients have received it."""
+        print(f"Clearing frame cache for frame version {frame_version}")
+        if frame_version in self.frame_clients:
+            del self.frame_clients[frame_version]
 
     def run(self):
         """Run the WebSocket server."""
