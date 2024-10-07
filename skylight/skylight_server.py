@@ -287,15 +287,25 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             """
             Continuously send the defined shapes (overlays) to an external WebSocket server.
             """
-            # Get the WebSocket URI from the config manager
-            uri = self.config_manager.get('skylight', 'websocket_uri', fallback='ws://localhost:7130/websocket')
-
-            async with websockets.connect(uri) as websocket:
-                while True:
-                    color_strip = self.led_controller.get_overlay_shapes()
-                    message_json = json.dumps({"overlay": color_strip})
-                    await websocket.send(message_json)
-                    await asyncio.sleep(1.0)
+            try:
+                # Get the WebSocket URI from the config manager
+                uri = self.config_manager.get('skylight', 'websocket_uri', fallback='ws://localhost:7130/websocket')
+                async with websockets.connect(uri) as websocket:
+                    while True:
+                        try:
+                            color_strip = self.led_controller.get_overlay_shapes()
+                            message_json = json.dumps({"overlay": color_strip})
+                            if self.debug:
+                                print(f"Sending overlay to {uri}: {message_json}")
+                            await websocket.send(message_json)
+                            await asyncio.sleep(1.0)
+                        except Exception as e:
+                            if self.debug:
+                                print(f"Error sending overlay: {e}")
+                            break  # Break out of the loop on error
+            except Exception as e:
+                if self.debug:
+                    print(f"Error connecting to WebSocket server at {uri}: {e}")
 
         async def start_background_tasks(self, app):
             """
