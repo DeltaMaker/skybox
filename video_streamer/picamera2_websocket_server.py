@@ -104,7 +104,7 @@ class Picamera2Server:
 
         return ws
 
-    async def send_frames(self, ws):
+    async def sorting_send_frames(self, ws):
         """Send frames to connected clients, resizing once per unique size."""
         try:
             last_ping_time = time.time()
@@ -147,7 +147,7 @@ class Picamera2Server:
         except Exception as e:
             logging.error(f"Error sending frames: {e}")
 
-    async def old_send_frames(self, ws):
+    async def send_frames(self, ws):
         """Send frames to a connected client."""
         try:
             while ws in self.clients:
@@ -208,8 +208,8 @@ class Picamera2Server:
             return frame  # No resizing needed, return the original frame
 
         # Check if the resized frame is already in the cache
-        if client_size in self.frame_cache:
-            return self.frame_cache[client_size]
+        #if client_size in self.frame_cache:
+        #    return self.frame_cache[client_size]
 
         # Convert the binary frame (MJPEG) to an image
         np_arr = np.frombuffer(frame, np.uint8)
