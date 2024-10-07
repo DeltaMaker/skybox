@@ -124,7 +124,7 @@ class Picamera2Server:
                 await ws.ping() # Send a ping frame periodically to keep the connection alive
 
                 # After all clients have received the frame, clear the cache for that size
-                if self.frame_sent_to_all_clients(client_size):
+                if frame and self.frame_sent_to_all_clients(client_size):
                     del self.frame_cache[client_size]
 
         except Exception as e:
