@@ -119,10 +119,10 @@ class Picamera2Server:
                     resized_frame = self.get_resized_frame(frame, client_size)
 
                     # Send the resized frame in binary format
-                    print(f"Sending frame to client with size={client_size}")  # Add this log for each client
+                    #print(f"Sending frame to client with size={client_size}")  # Add this log for each client
                     await ws.send_bytes(resized_frame)
 
-            # clear cache after sending to each client
+            # clear cache after sending frame to each client
             self.frame_cache = {}
 
         except Exception as e:
@@ -134,8 +134,9 @@ class Picamera2Server:
                           for client_info in self.clients.values()]
         return web.json_response({
             'status': 'running' if self.running else 'stopped',
-            'base_size': self.base_size if self.base_size else 'N/A',  # Add the base frame size
-            'subscribers': clients_status
+            'base_size': self.base_size if self.base_size else 'N/A',  # Base frame size of the camera
+            'subscribers': clients_status,
+            'frame_cache_size': len(self.frame_cache)  # Add the number of cached frames (unique sizes)
         })
 
     def start_camera(self, size, frame_rate):
