@@ -26,7 +26,6 @@ class Picamera2Server:
 
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
-        # Create the aiohttp app
         app = web.Application()
 
         # Add routes for WebSocket and HTTP requests
@@ -42,7 +41,6 @@ class Picamera2Server:
 
         print(f"Server started on ws://{self.host}:{self.port} (WebSocket and HTTP)")
 
-        # Keep the server running indefinitely
         while True:
             await asyncio.sleep(3600)
 
@@ -75,6 +73,14 @@ class Picamera2Server:
                     'size': custom_size,
                     'fps': custom_fps
                 }
+
+                # Send subscription confirmation to the client
+                confirmation_message = {
+                    'status': 'subscribed',
+                    'size': custom_size,
+                    'fps': custom_fps
+                }
+                await ws.send_str(json.dumps(confirmation_message))
 
                 # Continuously send frames to the client
                 await self.send_frames(ws)
