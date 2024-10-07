@@ -66,10 +66,10 @@ class LEDController:
     def get_overlay_shapes(self):
         overlay = []
         #pixels = self.get_pixels()
-        width = 1 / self.led_count + 1
+        width = 1 / (self.led_count + 1)
         for i, color in enumerate(self.pixels):
-            topLeft = (0.95, i * width)
-            botRight = (1.0, (i + 1) * width)
+            topLeft = (round(i * width, 3), 0.95)
+            botRight = (round((i+1) * width, 3), 1.0)
             shape = {"type": "rect", "tl": topLeft, "br": botRight, "col": color, "th": -1}
             overlay.append(shape)
         return overlay
@@ -113,9 +113,9 @@ class LEDController:
             self.reverse_order = reversed
 
     def set_color(self, color, index=None):
-        color = self.get_color(color)
-        scaled_color = ColorUtils.scale_color(color, self.brightness)
-        #with self.lock:
+        scaled_color = color = self.get_color(color)
+        #scaled_color = ColorUtils.scale_color(color, self.brightness)
+        #with self.lock:x
         if index is not None and index < self.led_count:
             index = self.led_count - index - 1 if self.reverse_order else index
             self.pixels[index] = scaled_color
