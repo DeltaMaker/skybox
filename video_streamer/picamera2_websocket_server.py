@@ -119,6 +119,39 @@ class Picamera2Server:
                     resized_frame = self.get_resized_frame(frame, client_size)
 
                     # Send the resized frame in binary format
+                    await ws.send_bytes(resized_frame)
+
+                await ws.ping() # Send a ping frame periodically to keep the connection alive
+
+                # After all clients have received the frame, clear the cache for that size
+                if self.frame_sent_to_all_clients(client_size):
+                    del self.frame_cache[client_size]
+
+        except Exception as e:
+            logging.error(f"Error sending frames: {e}")
+
+    def frame_sent_to_all_clients(self, client_size):
+        """
+        Check if all clients requesting a specific frame size have received it.
+        Returns True if the frame for that size can be cleared from the cache.
+        """
+        return all(client['size'] != client_size for client in self.clients.values())
+
+    async def old_send_frames(self, ws):
+        """Send frames to a connected client."""
+        try:
+            while ws in self.clients:
+                await asyncio.sleep(1 / self.clients[ws]['fps'])  # Adjust frame sending rate
+
+                # Get the latest frame and resize it if necessary
+                frame = self.output.frame
+                if frame:
+                    client_size = self.clients[ws]['size']
+
+                    # Get the resized frame for the client's requested size from the cache
+                    resized_frame = self.get_resized_frame(frame, client_size)
+
+                    # Send the resized frame in binary format
                     #print(f"Sending frame to client with size={client_size}")  # Add this log for each client
                     await ws.send_bytes(resized_frame)
 
