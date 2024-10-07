@@ -129,6 +129,7 @@ class Picamera2Server:
                           for client_info in self.clients.values()]
         return web.json_response({
             'status': 'running' if self.running else 'stopped',
+            'base_size': self.base_size if self.base_size else 'N/A',  # Add the base frame size
             'subscribers': clients_status
         })
 
