@@ -18,7 +18,7 @@ overlays = [
 async def send_shapes():
     # Connect to the WebSocket server (replace 'ws://your-websocket-url' with your server URL)
     uri = "ws://localhost:7130/websocket"
-    uri = "ws://192.168.1.198:7130/websocket"
+    #uri = "ws://192.168.1.198:7130/websocket"
     async with websockets.connect(uri) as websocket:
         while True:
           for shapes in overlays:
@@ -29,8 +29,8 @@ async def send_shapes():
                 #"overlay": [{}]
             }
             message_json = json.dumps(data)
+            #print(f"Sending shapes: {message_json}")
             # Send the shapes data
-            print(f"Sending shapes: {message_json}")
             await websocket.send(message_json)
 
             await asyncio.sleep(1.0)

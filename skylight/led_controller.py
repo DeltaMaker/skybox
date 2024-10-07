@@ -63,6 +63,17 @@ class LEDController:
         #with self.lock:
         self.strip.show()
 
+    def get_overlay_shapes(self):
+        overlay = []
+        #pixels = self.get_pixels()
+        width = 1 / self.led_count + 1
+        for i, color in enumerate(self.pixels):
+            topLeft = (0.95, i * width)
+            botRight = (1.0, (i + 1) * width)
+            shape = {"type": "rect", "tl": topLeft, "br": botRight, "col": color, "th": -1}
+            overlay.append(shape)
+        return overlay
+
 
     def set_data_fields(self, init_data_fields):
         #with self.lock:
