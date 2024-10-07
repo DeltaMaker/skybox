@@ -14,7 +14,7 @@ from aiohttp import web
 
 
 class Picamera2Server:
-    def __init__(self, host='0.0.0.0', port=8000):
+    def __init__(self, host='0.0.0.0', port=7160):
         self.host = host
         self.port = port
         self.picam2 = Picamera2()
@@ -193,7 +193,7 @@ class StreamingOutput(io.BufferedIOBase):
 
 def main():
     # Initialize and run the Picamera2 WebSocket and HTTP server
-    camera_server = Picamera2Server(host='0.0.0.0', port=7130)
+    camera_server = Picamera2Server(host='0.0.0.0', port=7160)
 
     try:
         # Start the WebSocket server
