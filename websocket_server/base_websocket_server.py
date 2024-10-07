@@ -1,6 +1,6 @@
+import asyncio
 import json
 import time
-import asyncio
 from aiohttp import web
 
 class BaseWebSocketServer:
@@ -200,6 +200,26 @@ class BaseWebSocketServer:
                 paths.append(new_key)
         return paths
 
+    def convert_path_to_nested(self, dot_notation_dict):
+        """
+        Convert a dictionary with dot notation path keys to a nested dictionary.
+
+        :param dot_notation_dict: Dictionary where keys use dot notation (e.g., "skylight.status")
+        :return: Nested dictionary (e.g., {"skylight": {"status": "on"}})
+        """
+        nested_dict = {}
+
+        for key, value in dot_notation_dict.items():
+            parts = key.split('.')
+            d = nested_dict
+            for part in parts[:-1]:  # Traverse or create intermediate dictionaries
+                if part not in d:
+                    d[part] = {}
+                d = d[part]
+            d[parts[-1]] = value  # Set the final key to the value
+
+        return nested_dict
+
     def update_last_sent_state(self, ws, requested_objects, state_params):
         """Update the last sent state for a subscriber."""
         if ws not in self.last_sent_state:
@@ -218,11 +238,27 @@ class BaseWebSocketServer:
         return {key: self.get_nested_value(self.current_state, key.split('.')) for key in requested_objects}
 
     async def handle_http_request(self, request):
-        """Handle incoming HTTP GET requests."""
-        query_params = request.query_string.split('&')
-        requested_objects = set(param.split('=')[0] for param in query_params)
-        response_data = {"result": {"status": self.get_response_params(requested_objects)}}
-        return web.json_response(response_data)
+        path = request.path
+        query_params = request.query
+        if request.method == 'POST':
+            try:
+                post_params = await request.json()
+            except:
+                post_params = {}
+
+        if path.endswith('query') and request.method == 'GET':
+            """Handle incoming HTTP GET requests."""
+            query_params = request.query_string.split('&')
+            requested_objects = set(param.split('=')[0] for param in query_params)
+            response_data = {"result": {"status": self.get_response_params(requested_objects)}}
+            return web.json_response(response_data)
+
+        elif path.endswith('update') and request.method == 'POST':
+            updated_objects = self.convert_path_to_nested(post_params)
+            self.deep_update(self.current_state, updated_objects)
+            await self.broadcast_state_update(updated_objects)
+            response_data = {"result": {"status": self.get_response_params(updated_objects)}}
+            return web.json_response(response_data)
 
     def get_response_params(self, requested_objects):
         """Get the response parameters based on the requested objects. To be overridden by subclasses."""
@@ -236,7 +272,6 @@ class BaseWebSocketServer:
         app.router.add_get('/websocket', self.websocket_handler)
         app.router.add_get('/printer/objects/query', self.handle_http_request)
         app.router.add_post('/printer/objects/update', self.handle_http_request)
-        #app.router.add_route('*', '/printer/objects/query', self.handle_http_request)
         self.add_custom_routes(app.router)
 
         app.on_startup.append(self.start_background_tasks)
@@ -250,7 +285,7 @@ class BaseWebSocketServer:
         while self.running:
             if self.debug:
                 print("Server is running...")
-            await asyncio.sleep(30)  # Keep running
+            await asyncio.sleep(30)
 
     async def start_background_tasks(self, app):
         if self.debug:
@@ -282,3 +317,37 @@ class BaseWebSocketServer:
         """Hook method for adding custom routes in derived classes."""
         pass
 
+def main():
+    """
+    Entry point for starting the BaseWebSocketServer.
+    """
+    # Instantiate the server with desired host, port, and enable debug mode
+    server = BaseWebSocketServer(host='0.0.0.0', port=8080, debug=True)
+
+    # Initialize the current_state with key/value pairs before starting the server
+    server.current_state = {
+        "scene": {},
+        "skylight": {
+            "status": "on",
+            "chain_count": 30,
+            "preset_scene": "rainbow",
+            "brightness": 50,
+            "error": None
+        },
+        "skybox": {
+            "temperature": 25.0,
+            "humidity": 40.0,
+            "device_status": "idle",
+            "error_code": None,
+            "last_update": time.time()
+        }
+    }
+
+    if server.debug:
+        print(f"Initial server state: {server.current_state}")
+
+    # Start the server
+    server.start()
+
+if __name__ == "__main__":
+    main()
