@@ -126,6 +126,7 @@ class Picamera2Server:
                         resized_frame = self.get_resized_frame(frame, size)  # Resize frame once per size
                         for client_ws in client_ws_list:
                             try:
+                                print(f"Sending frame to client with size={size}")
                                 await client_ws.send_bytes(
                                     resized_frame)  # Send the resized frame to all clients of this size
                             except Exception as e:
