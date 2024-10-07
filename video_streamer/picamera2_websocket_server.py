@@ -105,37 +105,46 @@ class Picamera2Server:
         return ws
 
     async def send_frames(self, ws):
-        """Send frames to a connected client."""
+        """Send frames to connected clients, resizing once per unique size."""
         try:
-            while ws in self.clients:
-                await asyncio.sleep(1 / self.clients[ws]['fps'])  # Adjust frame sending rate
+            last_ping_time = time.time()
+            ping_interval = 10  # Interval (in seconds) for sending ping messages
 
-                # Get the latest frame and resize it if necessary
+            while self.clients:
+                # Sort the clients by size to resize the frame once per unique size
+                clients_by_size = {}
+                for client_ws, client_info in self.clients.items():
+                    size = client_info['size']
+                    if size not in clients_by_size:
+                        clients_by_size[size] = []
+                    clients_by_size[size].append(client_ws)
+
                 frame = self.output.frame
                 if frame:
-                    client_size = self.clients[ws]['size']
+                    # Process each unique size and send the resized frame to all clients with that size
+                    for size, client_ws_list in clients_by_size.items():
+                        resized_frame = self.get_resized_frame(frame, size)  # Resize frame once per size
+                        for client_ws in client_ws_list:
+                            try:
+                                await client_ws.send_bytes(
+                                    resized_frame)  # Send the resized frame to all clients of this size
+                            except Exception as e:
+                                logging.error(f"Error sending frame to client: {e}")
+                                # Handle the case where sending fails (e.g., remove client)
 
-                    # Get the resized frame for the client's requested size from the cache
-                    resized_frame = self.get_resized_frame(frame, client_size)
+                await asyncio.sleep(1 / self.clients[ws]['fps'])  # Adjust frame sending rate for the first client
 
-                    # Send the resized frame in binary format
-                    await ws.send_bytes(resized_frame)
-
-                await ws.ping() # Send a ping frame periodically to keep the connection alive
-
-                # After all clients have received the frame, clear the cache for that size
-                if frame and self.frame_sent_to_all_clients(client_size):
-                    del self.frame_cache[client_size]
+                # Send a ping message to keep the connection alive
+                if time.time() - last_ping_time > ping_interval:
+                    try:
+                        await ws.ping()
+                        last_ping_time = time.time()
+                    except Exception as e:
+                        logging.error(f"Error sending ping: {e}")
+                        break  # Exit the loop if the ping fails
 
         except Exception as e:
             logging.error(f"Error sending frames: {e}")
-
-    def frame_sent_to_all_clients(self, client_size):
-        """
-        Check if all clients requesting a specific frame size have received it.
-        Returns True if the frame for that size can be cleared from the cache.
-        """
-        return all(client['size'] != client_size for client in self.clients.values())
 
     async def old_send_frames(self, ws):
         """Send frames to a connected client."""
