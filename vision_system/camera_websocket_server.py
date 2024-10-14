@@ -170,8 +170,7 @@ class CameraServer:
                         resized_frame = self.get_resized_frame(frame, size)
 
                         # Detect markers in the frame
-                        self.marker_tracker.process_frame(resized_frame)
-                        marker_data = self.marker_tracker.get_detected_ids()
+                        marker_data = self.marker_tracker.process_frame(resized_frame)
 
                         # Convert frame to JPEG for transmission
                         _, encoded_frame = cv2.imencode('.jpg', resized_frame)
@@ -196,7 +195,10 @@ class CameraServer:
                                     del self.clients[client_ws]
 
                 # Adjust sleep rate for frame sending based on FPS
-                await asyncio.sleep(1 / min(client['fps'] for client in self.clients.values()))
+                if self.clients:
+                    await asyncio.sleep(1 / min(client['fps'] for client in self.clients.values()))
+                else:
+                    await asyncio.sleep(1)  # Sleep to avoid a busy loop if no clients connected
 
         except Exception as e:
             logging.error(f"Error sending frames: {e}")
