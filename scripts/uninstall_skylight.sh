@@ -36,15 +36,15 @@ sudo systemctl daemon-reload
 
 # Check if Skylight installation directory exists and remove it
 if [ -d "$INSTALL_PATH" ]; then
-    echo "[UNINSTALL] Removing Skylight installation directory..."
-    sudo rm -rf "$INSTALL_PATH"
+    # echo "[UNINSTALL] Removing Skylight installation directory..."
+    # sudo rm -rf "$INSTALL_PATH"
 else
     echo "[UNINSTALL] Skylight installation directory not found, skipping."
 fi
 
 # Check if Python virtual environment exists and remove it
 if [ -d "$PYTHON_ENV_PATH" ]; then
-    echo "[UNINSTALL] Removing Python virtual environment..."
+    # echo "[UNINSTALL] Removing Python virtual environment..."
     # sudo rm -rf "$PYTHON_ENV_PATH"
 else
     echo "[UNINSTALL] Python virtual environment not found, skipping."

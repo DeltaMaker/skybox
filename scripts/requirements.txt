@@ -1,6 +1,5 @@
-# This file describes the Python virtualenv package requirements for
-# the Skybox software. These package requirements are
-# typically installed via the command:
+# This file describes the Python virtualenv package requirements for the Skybox services.
+# These package requirements are typically installed via the command:
 #   pip install -r requirements.txt
 rpi_ws281x
 RPi.GPIO

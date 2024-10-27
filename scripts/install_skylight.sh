@@ -51,7 +51,7 @@ create_virtualenv() {
     
     # Create virtualenv if it doesn't already exist
     if [ ! -d "${PYTHONDIR}" ]; then
-        virtualenv -p python3 "${PYTHONDIR}"
+        python3 -m venv --system-site-packages "${PYTHONDIR}"
     fi
 
     # Install/update dependencies from requirements.txt
