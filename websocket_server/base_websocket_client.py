@@ -3,207 +3,183 @@ import json
 import websockets
 import time
 import logging
+from typing import Dict, Any, Optional
 
 class BaseWebSocketClient:
-    def __init__(self, connections, debug=True):
+    def __init__(self, connections: Dict[str, Dict[str, Any]], debug: bool = True):
         """
         Initialize the BaseWebSocketClient with a list of connections.
-        :param connections: A dictionary where the key is the service name and the value contains:
-                            - 'uri': The WebSocket URI for the service.
-                            - 'subscription': The JSON-RPC or subscription message.
-                            - 'root': The root of the current state being subscribed to.
-        :param debug: Whether to enable debug logging.
+        :param connections: Dictionary of connection configurations
+        :param debug: Enable debug logging
         """
         self.connections = connections
         self.debug = debug
-        self.current_state = {}  # To store the current state of each service or connection
-        self.running = False  # To indicate if the connection is running
-
-        # Initialize the additional fields in the connections dictionary
+        self.current_state: Dict[str, Dict] = {}
+        self.running = False
+        self.tasks: Dict[str, asyncio.Task] = {}
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        
+        # Initialize connection states
         for name, conn_info in self.connections.items():
-            conn_info['connected'] = False  # Initially not connected
-            conn_info['task'] = None  # Will be set when the connection is established
-            conn_info['last_time'] = 0  # Timestamp for the last message
+            conn_info['connected'] = False
+            conn_info['last_time'] = 0
 
-    async def connect_to_services(self):
-        """
-        Establish WebSocket connections to all services defined in self.connections.
-        """
-        self.running = True  # Set running status to True
+    async def start(self) -> None:
+        """Start the client and establish connections"""
+        self.running = True
+        try:
+            # Get or create event loop
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+
+        # Start connections
         for name, conn_info in self.connections.items():
-            uri = conn_info['uri']
-            # Start connection with retries
-            task = asyncio.create_task(self._connect_with_retries(uri, conn_info['root'], name))
-            self.connections[name]['task'] = task  # Store the task in the connections dictionary
+            self.tasks[name] = self.loop.create_task(
+                self._connect_with_retries(
+                    conn_info['uri'],
+                    conn_info['root'],
+                    name
+                )
+            )
 
-        # Await the tasks associated with each connection
-        await asyncio.gather(*[conn_info['task'] for conn_info in self.connections.values()])
-
-    async def _connect_with_retries(self, uri, root, name):
-        """
-        Attempt to connect with retries on failure.
-        """
+    async def _connect_with_retries(self, uri: str, root: str, name: str) -> None:
+        """Maintain persistent connection with retry logic"""
         retry_interval = 5
-        max_retries = 60  # Maximum retries before giving up
-        retry_count = 0
-
         while self.running:
             try:
                 async with websockets.connect(uri) as websocket:
-                    self.connections[name]['connected'] = True  # Update connection status
+                    self.connections[name]['connected'] = True
                     if self.debug:
                         print(f"Connected to {name} at {uri}")
 
-                    # Subscribe to the service after connecting
+                    # Subscribe to the service
                     await self.subscribe(websocket, name)
-
-                    # Start listening for messages
-                    listen_task = asyncio.create_task(self.listen(websocket, root, name))
-                    self.connections[name]['task'] = listen_task
-
-                    # Start the periodic timeout checker
-                    asyncio.create_task(self.check_broadcast_timeout(name, root))
-
-                    # Reset retry count if connection was successful
-                    retry_count = 0
-
-                    # Await for the listening task to finish (i.e., connection closed)
-                    await listen_task
-
-            except (websockets.ConnectionClosedError, websockets.InvalidURI, websockets.InvalidHandshake) as e:
-                if self.debug:
-                    print(f"Connection to {name} failed: {e}. Retrying in {retry_interval} seconds...")
-
-                retry_count += 1
-                if retry_count >= max_retries:
-                    if self.debug:
-                        print(f"Max retries reached for {name}. Giving up.")
-                    break  # Stop retrying if max retries are reached
-
-                await asyncio.sleep(retry_interval)
-
-            except (ConnectionRefusedError, OSError) as e:
-                if self.debug:
-                    print(f"Connection to {name} failed: {e}. Retrying in {retry_interval} seconds...")
-
-                retry_count += 1
-                if retry_count >= max_retries:
-                    if self.debug:
-                        print(f"Max retries reached for {name}. Giving up.")
-                    break  # Stop retrying if max retries are reached
-
-                await asyncio.sleep(retry_interval)
+                    
+                    # Start monitoring tasks
+                    listen_task = self.loop.create_task(
+                        self.listen(websocket, root, name)
+                    )
+                    timeout_task = self.loop.create_task(
+                        self.check_broadcast_timeout(name, root)
+                    )
+                    
+                    # Wait for either task to complete
+                    done, pending = await asyncio.wait(
+                        [listen_task, timeout_task],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    
+                    # Cancel pending tasks
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
 
             except Exception as e:
                 if self.debug:
-                    print(f"Unexpected error while connecting to {name}: {e}")
-                    import traceback
-                    traceback.print_exc()  # Log the traceback for debugging
+                    print(f"Connection error for {name}: {e}")
+                self.connections[name]['connected'] = False
                 await asyncio.sleep(retry_interval)
 
-    async def subscribe(self, websocket, name):
-        """
-        Send the subscription message to the WebSocket server.
-        :param websocket: The WebSocket connection.
-        :param name: The name of the service.
-        """
-        try:
-            subscription = self.connections[name]['subscription']
-            await websocket.send(json.dumps(subscription))
+    async def subscribe(self, websocket, name: str) -> None:
+        """Send subscription message to service"""
+        subscription = self.connections[name]['subscription']
+        await websocket.send(json.dumps(subscription))
+        self.connections[name]['last_time'] = time.time()
+        
+        if self.debug:
+            print(f"Subscribed to {name}")
 
-            # Track the last broadcast time for the subscription inside the connections dictionary
-            self.connections[name]['last_time'] = time.time()
-
-            if self.debug:
-                print(f"Subscribed to {name} with subscription: {subscription}")
-        except Exception as e:
-            logging.error(f"Error sending subscription for {name}: {e}")
-
-    async def listen(self, websocket, root, name):
-        """
-        Listen for WebSocket messages and process them.
-        :param websocket: The WebSocket connection.
-        :param root: The root of the server's current state being subscribed to.
-        :param name: The name of the service (e.g., 'moonraker', 'skybox').
-        """
+    async def listen(self, websocket, root: str, name: str) -> None:
+        """Listen for messages from the service"""
         try:
             while self.running:
                 message = await websocket.recv()
                 data = json.loads(message)
+                
                 if self.debug:
-                    print(f"Received message from {name}: {data}")
+                    print(f"Received from {name}: {data}")
 
-                # Handle different types of messages
-                if 'method' in data and data['method'].endswith('disconnected'):
-                    if self.debug:
-                        print(f"Received '{data['method']}' for {name}. Attempting to reconnect...")
-                    # Stop the client and reconnect dynamically based on root
-                    await self.stop()
-                    await self.reconnect_to_service(root)
-
-                elif 'method' in data and data['method'].endswith('update'):
-                    # Update state based on the 'update' method
-                    await self.update_state(data['params'][0], root)
-
-                elif 'result' in data and 'status' in data['result']:
-                    # Update state based on the 'result' key in the message
-                    await self.update_state(data['result']['status'], root)
-
-                # Update the last time a message was received
                 self.connections[name]['last_time'] = time.time()
-
+                await self._process_message(data, root, name)
+                
         except websockets.ConnectionClosed:
-            logging.error(f"Connection to {name} closed.")
-            self.connections[name]['connected'] = False  # Update connection status
-        except Exception as e:
-            logging.error(f"Error while listening to {name}: {e}")
+            self.connections[name]['connected'] = False
+            if self.debug:
+                print(f"Connection to {name} closed")
+            raise
 
-    async def update_state(self, updated_objects, root):
-        """
-        Update the client's copy of the server's current_state for the requested objects.
-        :param updated_objects: The objects that were updated.
-        :param root: The root of the server's current state being updated.
-        """
+    async def _process_message(self, data: Dict, root: str, name: str) -> None:
+        """Process received message and update state"""
+        if 'method' in data:
+            if data['method'].endswith('disconnected'):
+                await self.handle_disconnection(root)
+            elif data['method'].endswith('update'):
+                await self.update_state(data['params'][0], root)
+        elif 'result' in data and 'status' in data['result']:
+            await self.update_state(data['result']['status'], root)
+
+    async def check_broadcast_timeout(self, name: str, root: str, timeout: int = 30) -> None:
+        """Monitor connection for timeouts"""
+        while self.running:
+            await asyncio.sleep(10)
+            if time.time() - self.connections[name]['last_time'] > timeout:
+                if self.debug:
+                    print(f"Timeout detected for {name}")
+                raise TimeoutError(f"Connection to {name} timed out")
+
+    async def stop(self) -> None:
+        """Stop the client and cleanup resources"""
+        self.running = False
+        
+        # Cancel all tasks
+        for name, task in self.tasks.items():
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
+        self.tasks.clear()
+        
+        # Reset connection states
+        for conn_info in self.connections.values():
+            conn_info['connected'] = False
+
+    async def update_state(self, updated_objects: Dict, root: str) -> None:
+        """Update internal state with new data"""
         if root not in self.current_state:
             self.current_state[root] = {}
-
-        if self.debug:
-            print(f"Updating state for {root}: {updated_objects}")
-
-        # Perform a deep update on the current state for the given root
         self.deep_update(self.current_state[root], updated_objects)
 
-    def deep_update(self, source, updates):
-        """
-        Recursively update the source dictionary with updates.
-        :param source: The source dictionary to update.
-        :param updates: The dictionary with updated values.
-        """
+    def deep_update(self, source: Dict, updates: Dict) -> None:
+        """Recursively update dictionary"""
         for key, value in updates.items():
             if isinstance(value, dict) and key in source and isinstance(source[key], dict):
                 self.deep_update(source[key], value)
             else:
                 source[key] = value
 
-    async def check_broadcast_timeout(self, name, root, timeout_interval=30):
-        """
-        Periodically check if broadcasts from the service are being received.
-        :param name: The name of the service (e.g., 'moonraker', 'skybox').
-        :param root: The root of the service.
-        :param timeout_interval: Timeout interval in seconds.
-        """
-        while self.running:
-            await asyncio.sleep(10)  # Check every 10 seconds
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.start()
+        return self
 
-            # Calculate the time since the last broadcast was received
-            time_since_last_broadcast = time.time() - self.connections[name].get('last_time', 0)
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.stop()
 
-            if time_since_last_broadcast > timeout_interval:
-                if self.debug:
-                    print(f"Timeout detected for {name}: No broadcasts for {timeout_interval} seconds.")
-
-                # Reconnect to the service due to timeout
-                await self.reconnect_to_service(root)
+    async def handle_disconnection(self, root: str):
+        """Handle service disconnection"""
+        if self.debug:
+            print(f"Handling disconnection for {root}")
+        await self.stop()
+        await self.reconnect_to_service(root)
 
     async def reconnect_to_service(self, root):
         """
@@ -216,7 +192,7 @@ class BaseWebSocketClient:
         # Check if the connection exists for the given root and close it if it's open
         if root in self.connections and self.connections[root]['connected']:
             # Cancel the existing task for this connection
-            task = self.connections[root].get('task', None)
+            task = self.tasks.get(root, None)
             if task:
                 task.cancel()
 
@@ -233,57 +209,40 @@ class BaseWebSocketClient:
         # Reconnect using the connection URI and the root
         await self._connect_with_retries(service_uri, root, root)
 
-    async def stop(self):
-        """
-        Stop all connections and tasks.
-        """
-        self.running = False  # Set running to False to stop the event loop
-        for name, conn_info in self.connections.items():
-            task = conn_info.get('task', None)
-            if task and not task.done():
-                task.cancel()  # Cancel the listening task for this connection
-            conn_info['connected'] = False  # Mark the connection as disconnected
-
-        # Await cancellation of all tasks
-        await asyncio.gather(*[conn_info['task'] for conn_info in self.connections.values() if 'task' in conn_info])
-
-        if self.debug:
-            print("All WebSocket connections stopped.")
-
 
 def main():
-    """
-    Entry point for starting the BaseWebSocketClient and subscribing to the server's current state.
-    The client subscribes to specific roots in the server's current_state.
-    """
-    # Define the WebSocket connections with root-based subscriptions
+    """Example of how to use BaseWebSocketClient to subscribe to skylight server"""
+    # Define the WebSocket connections
     connections = {
-        'skylight': {                       # server name
-            'uri': 'ws://localhost:8080/websocket',  # WebSocket URI of the running server
-            'root': 'skylight',  # Subscribe to the "skylight" root of the server's current_state
+        'skylight': {
+            'uri': 'ws://localhost:7120/websocket',
+            'root': 'skylight',
             'subscription': {
                 "jsonrpc": "2.0",
-                "method": "subscribe",  # Subscription method
+                "method": "subscribe",
                 "params": {
                     "objects": {
-                        "skylight": None,  # Subscribe to items under "skylight"
-                        "scene": None  # Optionally subscribe to the "scene" root entirely
+                        "skylight": None,
+                        "scene": None,
+                        "moonraker": None
                     }
                 },
-                "id": 1  # Unique subscription ID
+                "id": 1
             }
         }
     }
 
-    # Initialize the client
-    client = BaseWebSocketClient(connections, debug=True)
+    async def run_client():
+        client = BaseWebSocketClient(connections, debug=True)
+        await client.start()
+        
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            await client.stop()
 
-    try:
-        # Start the client connection
-        asyncio.run(client.connect_to_services())
-    except KeyboardInterrupt:
-        # Gracefully stop the client on Ctrl+C
-        asyncio.run(client.stop())
+    asyncio.run(run_client())
 
 if __name__ == "__main__":
     main()

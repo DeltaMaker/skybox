@@ -1,42 +1,68 @@
 import asyncio
-import json
-import websockets
-from websocket_server.base_websocket_client import BaseWebSocketClient
+from typing import Dict, Any, Optional
+from .base_websocket_client import BaseWebSocketClient
 
 class WebSocketClientMixin:
-    def __init__(self, connections, debug=True):
+    """
+    A mixin class that provides WebSocket client functionality.
+    Inheriting classes must initialize debug and connections attributes.
+    """
+    
+    def __init__(self, connections: Dict[str, Dict[str, Any]], debug: bool = True):
         """
-        Initialize the WebSocketClientMixin with a BaseWebSocketClient.
-        :param connections: A dictionary where the key is the service name and the value contains:
-                            - 'uri': The WebSocket URI for the service.
-                            - 'subscription': The JSON-RPC or subscription message.
-                            - 'connected': The current connection status.
-        :param debug: Enable or disable debug logging.
+        Initialize the WebSocket client mixin.
+        
+        :param connections: Dictionary of connection configurations
+        :param debug: Enable debug logging
         """
-        self.client = BaseWebSocketClient(connections, debug)  # Use BaseWebSocketClient to manage connections
+        self.client: Optional[BaseWebSocketClient] = None
+        self.connections = connections
         self.debug = debug
-        self.client.on_state_update = self.handle_client_update  # Set the callback method
+        if self.debug:
+            print(f"Initializing WebSocketClientMixin with connections: {list(connections.keys())}")
 
-    async def start_client(self):
-        """
-        Start the WebSocket client.
-        """
+    async def start_client(self) -> None:
+        """Start the WebSocket client"""
         if self.debug:
             print("Starting WebSocket client...")
-        await self.client.start()
+            
+        if self.client is None:
+            try:
+                self.client = BaseWebSocketClient(self.connections, self.debug)
+                await self.client.start()
+                if self.debug:
+                    print("WebSocket client started successfully")
+            except Exception as e:
+                if self.debug:
+                    print(f"Error starting client: {e}")
+                await self.stop_client()
+                raise
 
-    async def stop_client(self):
-        """
-        Stop the WebSocket client.
-        """
-        if self.debug:
-            print("Stopping WebSocket client...")
-        await self.client.stop()
+    async def stop_client(self) -> None:
+        """Stop the WebSocket client"""
+        if self.client:
+            if self.debug:
+                print("Stopping WebSocket client...")
+            await self.client.stop()
+            self.client = None
+            if self.debug:
+                print("WebSocket client stopped")
 
-    async def handle_client_update(self, root, updated_objects):
+    async def handle_client_update(self, root: str, updated_objects: Dict) -> None:
         """
-        Handle updates from the WebSocket client. This method should be overridden by the subclass.
-        :param root: The root of the service being updated (e.g., 'moonraker', 'skybox').
-        :param updated_objects: The objects that were updated.
+        Handle updates from the WebSocket client.
+        Override this method in the implementing class.
+        
+        :param root: The root of the update (e.g., 'moonraker', 'skybox')
+        :param updated_objects: The updated data
         """
-        raise NotImplementedError("Subclasses must implement this method to handle updates from WebSocket client.")
+        raise NotImplementedError("Implementing classes must override handle_client_update")
+
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.start_client()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.stop_client()

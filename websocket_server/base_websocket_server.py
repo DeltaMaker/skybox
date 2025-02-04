@@ -1,353 +1,254 @@
 import asyncio
 import json
-import time
+import signal
+import sys
 from aiohttp import web
+from typing import Dict, Any, Set, Optional, List
+import logging
+from dataclasses import dataclass, field
+
+@dataclass
+class WebSocketClient:
+    ws: web.WebSocketResponse
+    subscriptions: Set[str] = field(default_factory=set)
 
 class BaseWebSocketServer:
-    def __init__(self, host='0.0.0.0', port=8080, debug=False):
+    def __init__(self, host: str = '0.0.0.0', port: int = 7120, debug: bool = True):
+        """
+        Initialize the WebSocket server.
+        
+        :param host: Host address to bind to
+        :param port: Port to listen on
+        :param debug: Enable debug logging
+        """
         self.host = host
         self.port = port
         self.debug = debug
+        self.app = web.Application()
+        self.runner: Optional[web.AppRunner] = None
+        self.site: Optional[web.TCPSite] = None
+        self.websockets: Dict[web.WebSocketResponse, WebSocketClient] = {}
+        self.current_state: Dict[str, Any] = {}
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.running = False
-        self.subscribers = set()
-        self.loop = None
-        self.current_state = {}
-        self.last_sent_state = {}
+        
+        # Register startup/cleanup handlers
+        self.app.on_startup.append(self.start_background_tasks)
+        self.app.on_cleanup.append(self.cleanup_background_tasks)
+        
+        # Setup routes
+        self.setup_routes()
 
+    def setup_routes(self) -> None:
+        """Setup server routes"""
+        # WebSocket connections must use GET for the upgrade handshake
+        self.app.router.add_get('/websocket', self.websocket_handler)
+        self.add_custom_routes(self.app.router)
+
+    def add_custom_routes(self, router: web.UrlDispatcher) -> None:
+        """
+        Add custom routes to the server.
+        Override this method to add custom routes.
+        """
+        pass
+
+    async def websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
+        """Handle WebSocket connections"""
         if self.debug:
-            print(f"Initialized BaseWebSocketServer with host={self.host}, port={self.port}")
-
-    def get_state(self, path, default=None):
-        """Get the value from self.current_state specified by the path."""
-        keys = path.split('.')
-        current_dict = self.current_state
-        for key in keys:
-            if isinstance(current_dict, dict) and key in current_dict:
-                current_dict = current_dict[key]
-            else:
-                return default
-        if default is not None and type(default) != type(current_dict):
-            print(f'get_state() type mismatch {type(default)} {type(current_dict)}')
-        return current_dict if current_dict is not None else default
-
-    async def broadcast_state_update(self, new_state):
-        """Broadcast the server state to all subscribers if there are changes."""
-        changed_objects = self.detect_changes(new_state)
-        if not changed_objects:
-            if self.debug:
-                pass
-            return
-
-        for ws, sub_id, requested_paths in self.subscribers:
-            if self.has_requested_objects_changed(requested_paths, changed_objects):
-                requested_objects = {path: self.get_nested_value(self.current_state, path.split('.')) for path in requested_paths}
-                response_params = self.extract_state_params(requested_objects)
-                response = {
-                    "jsonrpc": "2.0",
-                    "method": "notify_status_update",
-                    "params": [response_params, time.time()],
-                    "id": sub_id
-                }
-                try:
-                    message = json.dumps(response)
-                    if self.debug:
-                        print(f"Broadcasting state update to subscriber {sub_id} with params {response_params}")
-                    await ws.send_str(message)
-                    self.update_last_sent_state(ws, requested_paths, response_params)
-                except Exception as e:
-                    if self.debug:
-                        print(f'Error broadcasting state update: {e}')
-
-    def detect_changes(self, new_state):
-        """Detect changes between the new state and the current state."""
-        changes = self.deep_compare(self.current_state, new_state)
-        if changes:
-            self.deep_update(self.current_state, new_state)
-        return changes
-
-    def deep_compare(self, old, new, path=""):
-        """Recursively compare old and new state dictionaries to detect changes."""
-        changes = {}
-        for key in old.keys() | new.keys():
-            if key in old and key in new:
-                if isinstance(old[key], dict) and isinstance(new[key], dict):
-                    nested_changes = self.deep_compare(old[key], new[key], path + f".{key}")
-                    if nested_changes:
-                        changes[key] = nested_changes
-                elif old[key] != new[key]:
-                    changes[key] = (old[key], new[key])
-            elif key in old:
-                changes[key] = (old[key], None)
-            else:
-                changes[key] = (None, new[key])
-        return changes
-
-    def deep_update(self, source, updates):
-        """Recursively update the source dictionary with updates."""
-        for key, value in updates.items():
-            if isinstance(value, dict) and key in source and isinstance(source[key], dict):
-                self.deep_update(source[key], value)
-            else:
-                source[key] = value
-
-    async def websocket_handler(self, request):
-        """Handle incoming WebSocket connections and requests."""
-        if self.debug:
-            print(f"Handling new WebSocket connection from {request.remote}")
+            print(f"WebSocket connection attempt from {request.remote}")
+            
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        
+        # Create new client with empty subscriptions
+        self.websockets[ws] = WebSocketClient(ws=ws)
 
         try:
+            # Send initial state upon connection
+            if self.current_state:
+                await ws.send_json({
+                    "method": "notify_status_update",
+                    "params": [{
+                        "status": self.current_state
+                    }]
+                })
+
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
-                    request = json.loads(msg.data)
-                    if self.debug:
-                        print(f"Received message: {request}")
-
-                    if await self.process_custom_methods(request, ws):
-                        continue
-
-                    if 'method' in request:
-                        method = request['method']
-                        if method.endswith('subscribe'):
-                            await self.handle_subscribe(request, ws)
-                        elif method.endswith('query'):
-                            await self.handle_query(request, ws)
-                        elif method.endswith('update'):
-                            await self.handle_update(request, ws)
+                    try:
+                        data = json.loads(msg.data)
+                        if 'method' in data and data['method'] == 'subscribe':
+                            # Handle subscription
+                            objects = data.get('params', {}).get('objects', {})
+                            client = self.websockets[ws]
+                            client.subscriptions.update(objects.keys())
+                            if self.debug:
+                                print(f"Client subscribed to: {client.subscriptions}")
+                            
+                            # Send current state for subscribed objects
+                            state_update = {
+                                key: self.current_state.get(key, {})
+                                for key in client.subscriptions
+                                if key in self.current_state
+                            }
+                            if state_update:
+                                await ws.send_json({
+                                    "method": "notify_status_update",
+                                    "params": [{
+                                        "status": state_update
+                                    }]
+                                })
+                        
+                        response = await self.handle_message(data)
+                        if response:
+                            await ws.send_json(response)
+                    except json.JSONDecodeError:
+                        await ws.send_json({"error": "Invalid JSON"})
+                    except Exception as e:
+                        await ws.send_json({"error": str(e)})
                 elif msg.type == web.WSMsgType.ERROR:
                     if self.debug:
                         print(f'WebSocket connection closed with exception {ws.exception()}')
-        except Exception as e:
-            if self.debug:
-                print(f'WebSocket error: {e}')
         finally:
-            self.subscribers = {(subscriber_ws, subscriber_id, requested_paths) for
-                                subscriber_ws, subscriber_id, requested_paths in self.subscribers if
-                                subscriber_ws != ws}
-            if self.debug and 'remote' in request:
-                print(f"WebSocket connection from {request.remote} closed.")
-            await ws.close()
+            del self.websockets[ws]
+            if self.debug:
+                print("WebSocket connection closed")
+        
         return ws
 
-    async def handle_subscribe(self, request, ws):
-        """Handle subscription requests from clients."""
-        sub_id = request.get('id')
-        requested_objects = request.get('params').get('objects', {})
-        requested_paths = frozenset(self.get_all_paths(requested_objects))
-        self.subscribers.add((ws, sub_id, requested_paths))
-        if self.debug:
-            print(f"Subscription request received: id={sub_id}, params={request.get('params')}")
-        await ws.send_str(json.dumps({"jsonrpc": "2.0", "result": {}, "id": sub_id}))
-
-        # Send the current state immediately
-        initial_state = {path: self.get_nested_value(self.current_state, path.split('.')) for path in requested_paths}
-        initial_response = {
-            "jsonrpc": "2.0",
-            "method": "notify_status_update",
-            "params": [initial_state, time.time()],
-            "id": sub_id
-        }
-        await ws.send_str(json.dumps(initial_response))
-        self.update_last_sent_state(ws, requested_paths, initial_state)
-
-    async def handle_query(self, request, ws):
-        """Handle query requests from clients."""
-        requested_paths = self.get_all_paths(request.get('params', {}).get('objects', {}))
-        response_data = {
-            "status": {path: self.get_nested_value(self.current_state, path.split('.')) for path in requested_paths}
-        }
-        response = {
-            "jsonrpc": "2.0",
-            "result": response_data,
-            "id": request["id"]
-        }
-        if self.debug:
-            print(f"Query request received: id={request['id']}, params={request.get('params')}")
-        await ws.send_str(json.dumps(response))
-
-    async def handle_update(self, request, ws):
-        """Handle update requests from clients."""
-        new_state = request.get('params', {})
-        if self.debug:
-            print(f"Update request received: {new_state}")
-        self.deep_update(self.current_state, new_state)
-        await self.broadcast_state_update(new_state)
-
-    def get_nested_value(self, data, path):
-        """Get a nested value from a dictionary."""
-        for key in path:
-            if isinstance(data, dict):
-                data = data.get(key)
-            else:
-                return None
-        return data
-
-    def get_all_paths(self, obj, parent_key='', sep='.'):
-        """Get all paths from a nested dictionary, supporting wildcard."""
-        paths = []
-        for k, v in obj.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
-            if v == '*':
-                sub_paths = self.get_all_paths(self.get_nested_value(self.current_state, new_key.split(sep)), new_key, sep=sep)
-                paths.extend(sub_paths)
-            elif isinstance(v, list):
-                for sub_key in v:
-                    paths.append(f"{new_key}{sep}{sub_key}")
-            elif isinstance(v, dict):
-                paths.extend(self.get_all_paths(v, new_key, sep=sep))
-            else:
-                paths.append(new_key)
-        return paths
-
-    def convert_path_to_nested(self, dot_notation_dict):
+    async def handle_message(self, message: Dict) -> Optional[Dict]:
         """
-        Convert a dictionary with dot notation path keys to a nested dictionary.
-
-        :param dot_notation_dict: Dictionary where keys use dot notation (e.g., "skylight.status")
-        :return: Nested dictionary (e.g., {"skylight": {"status": "on"}})
+        Handle incoming WebSocket messages.
+        Override this method to implement custom message handling.
         """
-        nested_dict = {}
+        return None
 
-        for key, value in dot_notation_dict.items():
-            parts = key.split('.')
-            d = nested_dict
-            for part in parts[:-1]:  # Traverse or create intermediate dictionaries
-                if part not in d:
-                    d[part] = {}
-                d = d[part]
-            d[parts[-1]] = value  # Set the final key to the value
+    async def broadcast(self, message: Dict) -> None:
+        """Broadcast message to subscribed clients"""
+        if not self.websockets:
+            return
+            
+        dead_sockets = set()
+        
+        # Determine which objects are being updated
+        updated_objects = set()
+        if 'method' in message and message['method'] == 'notify_status_update':
+            status = message.get('params', [{}])[0].get('status', {})
+            updated_objects = set(status.keys())
 
-        return nested_dict
+        for ws, client in self.websockets.items():
+            # Only send to clients subscribed to the updated objects
+            if not updated_objects or (updated_objects & client.subscriptions):
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    dead_sockets.add(ws)
+        
+        # Clean up dead connections
+        for ws in dead_sockets:
+            del self.websockets[ws]
 
-    def update_last_sent_state(self, ws, requested_objects, state_params):
-        """Update the last sent state for a subscriber."""
-        if ws not in self.last_sent_state:
-            self.last_sent_state[ws] = {}
-        for path in requested_objects:
-            self.last_sent_state[ws][path] = self.get_nested_value(state_params, path.split('.'))
-
-    def has_requested_objects_changed(self, requested_objects, changed_objects):
-        """Check if any of the requested objects have changed."""
-        return any(obj in changed_objects for obj in requested_objects)
-
-    def extract_state_params(self, requested_objects):
-        """Extract the parameters from the state based on requested objects."""
+    async def start_server(self) -> None:
+        """Start the WebSocket server"""
         if self.debug:
-            print(f"Extracting parameters for requested objects: {requested_objects}")
-        return {key: self.get_nested_value(self.current_state, key.split('.')) for key in requested_objects}
-
-    async def handle_http_request(self, request):
-        path = request.path
-        query_params = request.query
-        if request.method == 'POST':
-            try:
-                post_params = await request.json()
-            except:
-                post_params = {}
-
-        if path.endswith('query') and request.method == 'GET':
-            """Handle incoming HTTP GET requests."""
-            query_params = request.query_string.split('&')
-            requested_objects = set(param.split('=')[0] for param in query_params)
-            response_data = {"result": {"status": self.get_response_params(requested_objects)}}
-            return web.json_response(response_data)
-
-        elif path.endswith('update') and request.method == 'POST':
-            updated_objects = self.convert_path_to_nested(post_params)
-            self.deep_update(self.current_state, updated_objects)
-            await self.broadcast_state_update(updated_objects)
-            response_data = {"result": {"status": self.get_response_params(updated_objects)}}
-            return web.json_response(response_data)
-
-    def get_response_params(self, requested_objects):
-        """Get the response parameters based on the requested objects. To be overridden by subclasses."""
-        return self.extract_state_params(requested_objects)
-
-    async def start_server(self):
-        """Start the HTTP and WebSocket server."""
-        if self.debug:
-            print(f"Starting server at {self.host}:{self.port}")
-        app = web.Application()
-        app.router.add_get('/websocket', self.websocket_handler)
-        app.router.add_get('/printer/objects/query', self.handle_http_request)
-        app.router.add_post('/printer/objects/update', self.handle_http_request)
-        self.add_custom_routes(app.router)
-
-        app.on_startup.append(self.start_background_tasks)
-        app.on_cleanup.append(self.cleanup_background_tasks)
-
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, host=self.host, port=self.port)
-        await site.start()
-
-        while self.running:
-            if self.debug:
-                print("Server is running...")
-            await asyncio.sleep(30)
-
-    async def start_background_tasks(self, app):
-        if self.debug:
-            print("Starting background tasks...")
+            print(f"Starting WebSocket server on {self.host}:{self.port}")
+        
+        # Setup the application
+        self.runner = web.AppRunner(self.app)
+        await self.runner.setup()
+        self.site = web.TCPSite(self.runner, self.host, self.port)
+        
+        # Register startup/cleanup handlers
+        self.app.on_startup.append(self.start_background_tasks)
+        self.app.on_cleanup.append(self.cleanup_background_tasks)
+        
+        # Start the site
+        await self.site.start()
         self.running = True
 
-    async def cleanup_background_tasks(self, app):
-        if self.debug:
-            print("Cleaning up background tasks...")
+    async def stop_server(self) -> None:
+        """Stop the WebSocket server"""
         self.running = False
-
-    def start(self):
+        
         if self.debug:
-            print("Starting event loop...")
-        self.loop = asyncio.get_event_loop()
-        self.loop.run_until_complete(self.start_server())
+            print("Stopping WebSocket server...")
+        
+        # Close all WebSocket connections
+        for ws in self.websockets:
+            await ws.close()
+        self.websockets.clear()
+        
+        # Cleanup server
+        if self.site:
+            await self.site.stop()
+        if self.runner:
+            await self.runner.cleanup()
+        
+        self.site = None
+        self.runner = None
 
-    def stop(self):
+    async def cleanup(self) -> None:
+        """Cleanup all resources"""
+        await self.stop_server()
+        
+        # Cancel all remaining tasks
+        tasks = [t for t in asyncio.all_tasks(self.loop) 
+                if t is not asyncio.current_task(self.loop)]
+        for task in tasks:
+            task.cancel()
+        
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def signal_handler(self, sig, frame) -> None:
+        """Handle shutdown signals"""
         if self.debug:
-            print("Stopping event loop...")
-        self.running = False
-        self.loop.stop()
+            print("\nShutdown signal received")
+        
+        if self.loop and self.loop.is_running():
+            self.loop.create_task(self.cleanup())
+            self.loop.stop()
 
-    async def process_custom_methods(self, request, ws):
-        """Hook method for processing custom methods in derived classes."""
-        return False
+    def start(self) -> None:
+        """
+        Start the server and set up signal handlers.
+        This is the main entry point for the server.
+        """
+        try:
+            # Set up signal handlers
+            signal.signal(signal.SIGINT, self.signal_handler)
+            signal.signal(signal.SIGTERM, self.signal_handler)
+            
+            # Get or create event loop
+            try:
+                self.loop = asyncio.get_event_loop()
+            except RuntimeError:
+                self.loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.loop)
+            
+            if self.debug:
+                print("Starting server...")
+            
+            # Run the application using the existing app instance
+            web.run_app(self.app, host=self.host, port=self.port)
+            
+        except Exception as e:
+            if self.debug:
+                print(f"Error starting server: {e}")
+            raise
 
-    def add_custom_routes(self, router):
-        """Hook method for adding custom routes in derived classes."""
+    async def start_background_tasks(self) -> None:
+        """
+        Start any background tasks.
+        Override this method to add custom background tasks.
+        """
         pass
 
-def main():
-    """
-    Entry point for starting the BaseWebSocketServer.
-    """
-    # Instantiate the server with desired host, port, and enable debug mode
-    server = BaseWebSocketServer(host='0.0.0.0', port=8080, debug=True)
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.start_server()
+        return self
 
-    # Initialize the current_state with key/value pairs before starting the server
-    server.current_state = {
-        "scene": {},
-        "skylight": {
-            "status": "on",
-            "chain_count": 30,
-            "preset_scene": "rainbow",
-            "brightness": 50,
-            "error": None
-        },
-        "skybox": {
-            "temperature": 25.0,
-            "humidity": 40.0,
-            "device_status": "idle",
-            "error_code": None,
-            "last_update": time.time()
-        }
-    }
-
-    if server.debug:
-        print(f"Initial server state: {server.current_state}")
-
-    # Start the server
-    server.start()
-
-if __name__ == "__main__":
-    main()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.cleanup()

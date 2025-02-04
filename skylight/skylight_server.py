@@ -11,6 +11,7 @@ from websocket_server.websocket_client_mixin import WebSocketClientMixin
 from skylight.led_controller import LEDController
 from config.config_manager import ConfigManager
 import json
+from typing import Dict
 
 class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
     def __init__(self, config_manager, host='0.0.0.0'):
@@ -24,7 +25,7 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
         debug = config_manager.getboolean('skylight', 'debug', True)
         BaseWebSocketServer.__init__(self, host, skylight_port, debug)
 
-        # Unified connections and subscriptions for WebSocket clients
+        # Initialize the WebSocket client mixin with connections
         connections = {
             'moonraker': {
                 'uri': config_manager.moonraker_uri(),
@@ -60,7 +61,7 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
                     },
                     "id": 3
                 }
-            }
+            } 
         }
 
         # Initialize the WebSocket client mixin with connections
@@ -112,9 +113,9 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             }
         }
 
-    async def handle_client_update(self, root, updated_objects):
+    async def handle_client_update(self, root: str, updated_objects: Dict) -> None:
         """
-        Override this method to handle updates from WebSocket services (e.g., Moonraker, Skybox).
+        Handle updates from WebSocket services.
         :param root: The root of the service being updated.
         :param updated_objects: The objects that were updated.
         """
@@ -217,133 +218,123 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
 
         self.led_controller.set_data_values(values)
 
-        def add_custom_routes(self, router):
-            """
-            Add custom routes for the Skylight server.
-            :param router: The aiohttp router object.
-            """
-            router.add_route('*', '/skylight/{tail:.*}', self.process_skylight_command)
+    def add_custom_routes(self, router):
+        """
+        Add custom routes for the Skylight server.
+        :param router: The aiohttp router object.
+        """
+        router.add_route('*', '/skylight/{tail:.*}', self.process_skylight_command)
 
-        async def process_skylight_command(self, request):
-            """
-            Process Skylight control commands (e.g., brightness, actions, etc.).
-            :param request: The aiohttp web request.
-            """
-            path = request.path
-            query_params = request.query
-            post_params = {}
+    async def process_skylight_command(self, request):
+        """
+        Process Skylight control commands (e.g., brightness, actions, etc.).
+        :param request: The aiohttp web request.
+        """
+        path = request.path
+        query_params = request.query
+        post_params = {}
 
-            if request.method == 'POST':
-                try:
-                    post_params = await request.json()
-                except:
-                    post_params = {}
-
-            if path == "/skylight/status" and request.method == 'GET':
-                return web.json_response(self.current_state)
-
-            if path == "/skylight/control" and request.method in ['GET', 'POST']:
-                combined_params = {**query_params, **post_params}
-
-                if "brightness" in combined_params:
-                    self.set_brightness(int(combined_params["brightness"]))
-                if "action" in combined_params:
-                    action = combined_params["action"]
-                    if action == 'on':
-                        self.current_state["skylight"]["status"] = "on"
-                        self.set_brightness(self.current_state["skylight"]["brightness"])
-                    elif action == 'off':
-                        self.current_state["skylight"]["status"] = "off"
-                        self.led_controller.set_brightness(0)
-
-                return web.json_response(self.current_state["skylight"])
-
-            if path == "/skylight/scene" and request.method in ['GET', 'POST']:
-                combined_params = {**query_params, **post_params}
-                if "format" in combined_params:
-                    format_data = json.loads(combined_params["format"])
-                    self.current_state['skylight']['preset_scene'] = "skybox"
-                    self.set_scene_format(format_data)
-                if "values" in combined_params:
-                    values = json.loads(combined_params["values"])
-                    self.set_scene_values(values)
-                if "preset" in combined_params:
-                    preset_name = combined_params["preset"]
-                    self.show_preset(preset_name)
-                return web.json_response({"status": "success", "scene": self.current_state["scene"]})
-
-            return web.Response(status=404, text=f"{path} Not Found")
-
-        def set_brightness(self, brightness):
-            """
-            Set the brightness of the LED system.
-            :param brightness: The brightness value to set.
-            """
-            self.current_state["skylight"]["brightness"] = brightness
-            percent = brightness / 256 if brightness < 256 else 1.0
-            self.led_controller.set_brightness(percent)
-
-        async def send_led_overlay(self):
-            """
-            Continuously send the defined shapes (overlays) to an external WebSocket server.
-            """
+        if request.method == 'POST':
             try:
-                # Get the WebSocket URI from the config manager
-                uri = self.config_manager.get('skylight', 'websocket_uri', fallback='ws://localhost:7130/websocket')
-                async with websockets.connect(uri) as websocket:
-                    while True:
-                        try:
-                            color_strip = self.led_controller.get_overlay_shapes()
-                            message_json = json.dumps({"overlay": color_strip})
-                            if self.debug:
-                                print(f"Sending overlay to {uri}: {message_json}")
-                            await websocket.send(message_json)
-                            await asyncio.sleep(1.0)
-                        except Exception as e:
-                            if self.debug:
-                                print(f"Error sending overlay: {e}")
-                            break  # Break out of the loop on error
-            except Exception as e:
-                if self.debug:
-                    print(f"Error connecting to WebSocket server at {uri}: {e}")
+                post_params = await request.json()
+            except:
+                post_params = {}
 
-        async def start_background_tasks(self, app):
-            """
-            Start background tasks such as WebSocket connections.
-            :param app: The aiohttp web app.
-            """
+        if path == "/skylight/status" and request.method == 'GET':
+            return web.json_response(self.current_state)
+
+        if path == "/skylight/control" and request.method in ['GET', 'POST']:
+            combined_params = {**query_params, **post_params}
+
+            if "brightness" in combined_params:
+                self.set_brightness(int(combined_params["brightness"]))
+            if "action" in combined_params:
+                action = combined_params["action"]
+                if action == 'on':
+                    self.current_state["skylight"]["status"] = "on"
+                    self.set_brightness(self.current_state["skylight"]["brightness"])
+                elif action == 'off':
+                    self.current_state["skylight"]["status"] = "off"
+                    self.led_controller.set_brightness(0)
+
+            return web.json_response(self.current_state["skylight"])
+
+        if path == "/skylight/scene" and request.method in ['GET', 'POST']:
+            combined_params = {**query_params, **post_params}
+            if "format" in combined_params:
+                format_data = json.loads(combined_params["format"])
+                self.current_state['skylight']['preset_scene'] = "skybox"
+                self.set_scene_format(format_data)
+            if "values" in combined_params:
+                values = json.loads(combined_params["values"])
+                self.set_scene_values(values)
+            if "preset" in combined_params:
+                preset_name = combined_params["preset"]
+                self.show_preset(preset_name)
+            return web.json_response({"status": "success", "scene": self.current_state["scene"]})
+
+        return web.json_response(
+            {"error": "Not Found", "path": path},
+            status=404
+        )
+
+    def set_brightness(self, brightness):
+        """
+        Set the brightness of the LED system.
+        :param brightness: The brightness value to set.
+        """
+        self.current_state["skylight"]["brightness"] = brightness
+        percent = brightness / 256 if brightness < 256 else 1.0
+        self.led_controller.set_brightness(percent)
+
+    async def send_led_overlay(self):
+        """
+        Continuously send the defined shapes (overlays) to an external WebSocket server.
+        """
+        try:
+            # Get the WebSocket URI from the config manager
+            uri = self.config_manager.get('skylight', 'websocket_uri', fallback='ws://localhost:7130/websocket')
+            async with websockets.connect(uri) as websocket:
+                while True:
+                    try:
+                        color_strip = self.led_controller.get_overlay_shapes()
+                        message_json = json.dumps({"overlay": color_strip})
+                        if self.debug:
+                            print(f"Sending overlay to {uri}: {message_json}")
+                        await websocket.send(message_json)
+                        await asyncio.sleep(1.0)
+                    except Exception as e:
+                        if self.debug:
+                            print(f"Error sending overlay: {e}")
+                        break  # Break out of the loop on error
+        except Exception as e:
             if self.debug:
-                print("Starting background tasks...")
-            self.running = True
-            asyncio.create_task(self.start_client())  # Non-blocking task creation
-            asyncio.create_task(self.send_led_overlay())
+                print(f"Error connecting to WebSocket server at {uri}: {e}")
 
-        async def cleanup_background_tasks(self, app):
-            """
-            Clean up background tasks when shutting down.
-            :param app: The aiohttp web app.
-            """
-            if self.debug:
-                print("Cleaning up background tasks...")
-            self.running = False
-            await self.stop_client()
+    async def start_background_tasks(self, app) -> None:
+        """
+        Start background tasks such as WebSocket connections.
+        :param app: The aiohttp web app.
+        """
+        if self.debug:
+            print("Starting Skylight background tasks...")
+        self.running = True
+        
+        # Start client connections
+        await self.start_client()
+        
+        # Start LED overlay task
+        asyncio.create_task(self.send_led_overlay())
 
-        def start(self):
-            """
-            Start the Skylight server with the aiohttp event loop.
-            """
-            if self.debug:
-                print("Starting Skylight server...")
-
-            # Create aiohttp app and configure routes
-            app = web.Application()
-            self.add_custom_routes(app.router)
-
-            app.on_startup.append(self.start_background_tasks)
-            app.on_cleanup.append(self.cleanup_background_tasks)
-
-            # Start the server
-            web.run_app(app, host='0.0.0.0', port=self.port)
+    async def cleanup_background_tasks(self, app) -> None:
+        """
+        Clean up background tasks when shutting down.
+        :param app: The aiohttp web app.
+        """
+        if self.debug:
+            print("Cleaning up Skylight background tasks...")
+        self.running = False
+        await self.stop_client()
 
 def main():
     config_manager = ConfigManager(config_file="localhost.conf", config_dir="../config")
