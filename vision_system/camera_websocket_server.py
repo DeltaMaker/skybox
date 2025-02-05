@@ -54,21 +54,22 @@ class CameraServer:
         else:
             full_res = (2304, 1296)
 
+        # Always capture at full resolution
         video_config = self.picam2.create_video_configuration(
-            main={"size": (640, 480)},
+            main={"size": full_res},  # Use full resolution for main stream
             lores=None,
             raw={"size": full_res},
             buffer_count=4,
             controls={
                 "FrameDurationLimits": (33333, 33333),  # ~30fps
-                "NoiseReductionMode": 2,  # Higher noise reduction (0=Off, 1=Fast, 2=High Quality)
-                "Sharpness": 2.0,         # Increased sharpness (range is -1.0 to 16.0)
-                "Brightness": 0.0,        # Normal brightness (range is -1.0 to 1.0)
-                "Contrast": 1.0,          # Normal contrast (range is 0.0 to 32.0)
-                "Saturation": 1.0,        # Normal saturation (range is 0.0 to 32.0)
-                "ExposureValue": 0,       # Auto exposure
-                "AwbEnable": 1,           # Enable Auto White Balance
-                "AeEnable": 1,            # Enable Auto Exposure
+                "NoiseReductionMode": 2,
+                "Sharpness": 2.0,
+                "Brightness": 0.0,
+                "Contrast": 1.0,
+                "Saturation": 1.0,
+                "ExposureValue": 0,
+                "AwbEnable": 1,
+                "AeEnable": 1,
             }
         )
         self.picam2.configure(video_config)
@@ -188,27 +189,28 @@ class CameraServer:
         else:
             full_res = (2304, 1296)
 
+        # Always capture at full resolution
         video_config = self.picam2.create_video_configuration(
-            main={"size": size},
+            main={"size": full_res},  # Use full resolution
             lores=None,
             raw={"size": full_res},
             buffer_count=4,
             controls={
                 "FrameDurationLimits": (int(1/fps * 1000000), int(1/fps * 1000000)),
-                "NoiseReductionMode": 2,  # Higher noise reduction
-                "Sharpness": 2.0,         # Increased sharpness
-                "Brightness": 0.0,        # Normal brightness
-                "Contrast": 1.0,          # Normal contrast
-                "Saturation": 1.0,        # Normal saturation
-                "ExposureValue": 0,       # Auto exposure
-                "AwbEnable": 1,           # Enable Auto White Balance
-                "AeEnable": 1,            # Enable Auto Exposure
+                "NoiseReductionMode": 2,
+                "Sharpness": 2.0,
+                "Brightness": 0.0,
+                "Contrast": 1.0,
+                "Saturation": 1.0,
+                "ExposureValue": 0,
+                "AwbEnable": 1,
+                "AeEnable": 1,
             }
         )
         self.picam2.configure(video_config)
         self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
-        self.base_size = size
-        print(f"Picamera2 started with size={size}, fps={fps}")
+        self.base_size = full_res  # Store the full resolution as base_size
+        print(f"Picamera2 started at full resolution={full_res}, target_size={size}, fps={fps}")
 
     async def send_frames_loop(self):
         """Continuous loop to send frames to all connected clients."""
