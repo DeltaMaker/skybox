@@ -40,33 +40,57 @@ def draw_markers(frame, markers):
                   thickness=-1)
     return frame
 
-def draw_hands(frame, hands_data):
+def draw_hands(frame, hands):
     """Draw detected hand landmarks on the frame."""
-    if not hands_data:
+    if not hands:
         return frame
     
     # Colors for each hand
     COLORS = [(0, 255, 0), (255, 0, 0)]  # Green for first hand, Red for second
     
-    for hand_idx, hand_landmarks in enumerate(hands_data):
+    # Define finger connections
+    HAND_CONNECTIONS = [
+        # Thumb
+        (0, 1), (1, 2), (2, 3), (3, 4),
+        # Index finger
+        (0, 5), (5, 6), (6, 7), (7, 8),
+        # Middle finger
+        (0, 9), (9, 10), (10, 11), (11, 12),
+        # Ring finger
+        (0, 13), (13, 14), (14, 15), (15, 16),
+        # Pinky
+        (0, 17), (17, 18), (18, 19), (19, 20),
+        # Palm
+        (0, 5), (5, 9), (9, 13), (13, 17)
+    ]
+    
+    for hand_idx, hand_landmarks in enumerate(hands):
         color = COLORS[hand_idx % len(COLORS)]
         
-        # Draw each landmark point
+        # Draw connections first (so they appear behind the points)
         h, w = frame.shape[:2]
+        for connection in HAND_CONNECTIONS:
+            start_idx, end_idx = connection
+            if start_idx < len(hand_landmarks) and end_idx < len(hand_landmarks):
+                start_point = (
+                    int(hand_landmarks[start_idx]['x'] * w),
+                    int(hand_landmarks[start_idx]['y'] * h)
+                )
+                end_point = (
+                    int(hand_landmarks[end_idx]['x'] * w),
+                    int(hand_landmarks[end_idx]['y'] * h)
+                )
+                cv2.line(frame, start_point, end_point, color, 1)
+        
+        # Draw landmark points on top
         for landmark in hand_landmarks:
-            # Convert normalized coordinates to pixel coordinates
             px = int(landmark['x'] * w)
             py = int(landmark['y'] * h)
-            
-            # Draw circle at landmark position
             cv2.circle(frame, (px, py), 3, color, -1)
-            
-        # Draw connections between landmarks (optional)
-        # You can add hand connections here if needed
             
     return frame
 
-async def receive_frames(ws_uri, width, height, fps, mirror):
+async def receive_frames(ws_uri, width, height, fps, mirror, track_hands):
     try:
         async with websockets.connect(ws_uri, ping_interval=20, ping_timeout=20) as websocket:
             print(f"Connected to WebSocket server at {ws_uri}")
@@ -75,10 +99,11 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
             subscription_message = json.dumps({
                 "size": [width, height],
                 "fps": fps,
-                "mirror": mirror
+                "mirror": mirror,
+                "hands": track_hands
             })
             await websocket.send(subscription_message)
-            print(f"Subscribed with size=({width}, {height}), fps={fps}, mirror={mirror}")
+            print(f"Subscribed with size=({width}, {height}), fps={fps}, mirror={mirror}, track_hands={track_hands}")
 
             # First, wait for and handle the subscription confirmation
             confirmation_message = await websocket.recv()
@@ -122,11 +147,9 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                         json_data = json.loads(frame_data)
                         
                         markers = json_data.get('markers', [])
-                        if markers:
-                            print(f"Marker data: {markers}")
                         hands = json_data.get('hands', [])
-                        if hands:
-                            print(f"Hand data: {hands}")
+                        if markers or hands:
+                            print(f"JSON data: {json_data}")
 
                 except websockets.ConnectionClosed:
                     print("Connection closed by server")
@@ -150,8 +173,10 @@ if __name__ == "__main__":
     parser.add_argument("--height", type=int, default=480, help="Frame height (default: 480)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
+    parser.add_argument("--hands", action="store_true", help="Track hands if set")
+
 
     args = parser.parse_args()
 
     # Run the WebSocket client
-    asyncio.run(receive_frames(args.ws_uri, args.width, args.height, args.fps, args.mirror))
+    asyncio.run(receive_frames(args.ws_uri, args.width, args.height, args.fps, args.mirror, args.hands))

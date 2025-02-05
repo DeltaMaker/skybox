@@ -104,6 +104,7 @@ class CameraServer:
                 custom_size = tuple(config.get('size', (640, 480)))
                 custom_fps = config.get('fps', 15)
                 mirror = config.get('mirror', False)
+                track_hands = config.get('hands', False)  # New flag
 
                 print(f"New client subscribed with size={custom_size}, fps={custom_fps}, mirror={mirror}")
 
@@ -122,7 +123,8 @@ class CameraServer:
                 self.clients[ws] = {
                     'size': custom_size,
                     'fps': custom_fps,
-                    'mirror': mirror
+                    'mirror': mirror,
+                    'hands': track_hands  # Store the flag
                 }
 
                 # Send subscription confirmation to the client
@@ -130,7 +132,8 @@ class CameraServer:
                     'status': 'subscribed',
                     'size': custom_size,
                     'fps': custom_fps,
-                    'mirror': mirror
+                    'mirror': mirror,
+                    'hands': track_hands
                 }
                 await ws.send_str(json.dumps(confirmation_message))
 
@@ -176,62 +179,64 @@ class CameraServer:
                 frame = self.get_current_frame()
 
                 if frame is not None:
-                    # First group clients by their requested size
+                    # Group clients by their requested size
                     clients_by_size = {}
                     for client_ws, client_info in self.clients.items():
                         size = client_info['size']
                         if size not in clients_by_size:
-                            clients_by_size[size] = {'mirror': [], 'no_mirror': []}
+                            clients_by_size[size] = {
+                                'mirror': [], 
+                                'no_mirror': [],
+                                'hands': False,
+                                'size': size
+                            }
                         # Sub-group by mirror flag
                         if client_info.get('mirror', False):
                             clients_by_size[size]['mirror'].append(client_ws)
                         else:
                             clients_by_size[size]['no_mirror'].append(client_ws)
+                        # Update track_hands if any client needs it
+                        if client_info.get('hands', False):
+                            clients_by_size[size]['hands'] = True
+
+                    # Process hand tracking once at the largest size that needs it
+                    hand_data = None
+                    largest_resized_frame = None
+                    if any(info['hands'] for info in clients_by_size.values()):
+                        # Find largest size that needs hand tracking
+                        largest_size = max(
+                            (info['size'] for info in clients_by_size.values() if info['hands']),
+                            key=lambda s: s[0] * s[1]
+                        )
+                        # Process hands once at largest size
+                        largest_resized_frame = self.get_resized_frame(frame, largest_size)
+                        hand_data = self.hand_tracker.process_frame(largest_resized_frame)
 
                     # Process each unique size
-                    for size, mirror_groups in clients_by_size.items():
-                        # Resize frame once per unique size
-                        resized_frame = self.get_resized_frame(frame, size)
+                    for size, size_info in clients_by_size.items():
+                        # Reuse the largest resized frame if available and matching the current size
+                        if largest_resized_frame is not None and size == largest_size:
+                            resized_frame = largest_resized_frame
+                        else:
+                            resized_frame = self.get_resized_frame(frame, size)
                         
-                        # Process non-mirrored frame and detect markers
-                        if mirror_groups['no_mirror']:
+                        # Process non-mirrored frame
+                        if size_info['no_mirror']:
                             marker_data = self.marker_tracker.process_frame(resized_frame)
-                            hand_data = self.hand_tracker.process_frame(resized_frame)            
-                
+                            
                             _, encoded_frame = cv2.imencode('.jpg', resized_frame)
                             frame_bytes = encoded_frame.tobytes()
                             
-                            # Send to all non-mirror clients
-                            for client_ws in mirror_groups['no_mirror']:
+                            for client_ws in size_info['no_mirror']:
                                 if not client_ws.closed:
                                     try:
                                         await client_ws.send_str(json.dumps({
-                                            "markers": marker_data, 
-                                            "hands": hand_data
+                                            "markers": marker_data,
+                                            "hands": hand_data if self.clients[client_ws]['hands'] else []
                                         }))
                                         await client_ws.send_bytes(frame_bytes)
-                                        
                                     except Exception as e:
-                                        logging.error(f"Error sending frame/markers to client: {e}")
-                                        if client_ws in self.clients:
-                                            del self.clients[client_ws]
-                        
-                        # Process mirrored frame if needed
-                        if mirror_groups['mirror']:
-                            mirrored_frame = cv2.flip(resized_frame, 1)
-                            # Always detect markers on mirrored frame since positions will be different
-                            mirrored_marker_data = self.marker_tracker.process_frame(mirrored_frame)
-                            _, encoded_frame = cv2.imencode('.jpg', mirrored_frame)
-                            frame_bytes = encoded_frame.tobytes()
-                            
-                            # Send to all mirror clients
-                            for client_ws in mirror_groups['mirror']:
-                                if not client_ws.closed:
-                                    try:
-                                        await client_ws.send_bytes(frame_bytes)
-                                        await client_ws.send_str(json.dumps({"markers": mirrored_marker_data}))
-                                    except Exception as e:
-                                        logging.error(f"Error sending frame/markers to client: {e}")
+                                        logging.error(f"Error sending frame/data: {e}")
                                         if client_ws in self.clients:
                                             del self.clients[client_ws]
 
@@ -260,7 +265,7 @@ class CameraServer:
 
     async def http_handler(self, request):
         """Handle HTTP requests to get the current status of connected clients."""
-        clients_status = [{'size': client_info['size'], 'fps': client_info['fps'], 'mirror': client_info['mirror']}
+        clients_status = [{'size': client_info['size'], 'fps': client_info['fps'], 'mirror': client_info['mirror'], 'hands': client_info['hands']}
                           for client_info in self.clients.values()]
         return web.json_response({
             'status': 'running' if self.running else 'stopped',
