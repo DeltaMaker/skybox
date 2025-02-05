@@ -47,14 +47,14 @@ class CameraServer:
 
     def initialize_picamera2(self):
         """Initialize Picamera2 if available."""
-        # Use 1920x1080 as default resolution - better balance of quality and performance
-        full_res = (1920, 1080)  # Mode 1 for OV5647
-
         try:
+            # Start with a default size - will be updated when clients connect
+            initial_size = (640, 480)
+
             video_config = self.picam2.create_video_configuration(
-                main={"size": full_res},
+                main={"size": initial_size},  # Initial size, will be updated with client requests
                 lores=None,
-                raw={"size": full_res},
+                raw=None,  # Let camera choose optimal raw format
                 buffer_count=4,
                 controls={
                     "FrameDurationLimits": (33333, 33333),  # ~30fps
@@ -69,7 +69,8 @@ class CameraServer:
                 }
             )
             self.picam2.configure(video_config)
-            print(f"Camera initialized with resolution {full_res}")
+            self.base_size = initial_size
+            print(f"Camera initialized with resolution {initial_size}")
         except Exception as e:
             logging.error(f"Failed to initialize camera: {e}")
             raise
@@ -182,14 +183,14 @@ class CameraServer:
 
     def start_picamera2(self, size, fps):
         """Start the Picamera2 camera with the specified settings."""
-        # Use 1920x1080 as default resolution
-        full_res = (1920, 1080)  # Mode 1 for OV5647
-
         try:
+            # Update base_size to match the largest client request
+            self.base_size = size
+            
             video_config = self.picam2.create_video_configuration(
-                main={"size": full_res},
+                main={"size": size},  # Use the requested size
                 lores=None,
-                raw={"size": full_res},
+                raw=None,
                 buffer_count=4,
                 controls={
                     "FrameDurationLimits": (int(1/fps * 1000000), int(1/fps * 1000000)),
@@ -205,8 +206,7 @@ class CameraServer:
             )
             self.picam2.configure(video_config)
             self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
-            self.base_size = full_res
-            print(f"Picamera2 started at resolution={full_res}, target_size={size}, fps={fps}")
+            print(f"Picamera2 started with size={size}, fps={fps}")
         except Exception as e:
             logging.error(f"Failed to start camera: {e}")
             raise
