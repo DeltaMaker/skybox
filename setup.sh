@@ -3,30 +3,48 @@
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}Setting up Python environment for Skylight...${NC}"
 
-# Check for Python 3.10
+# Install required packages on Debian/Ubuntu systems
+if [ -f "/etc/debian_version" ]; then
+    echo -e "${YELLOW}Installing required packages...${NC}"
+    sudo apt-get update
+    sudo apt-get install -y python3-venv python3-pip
+fi
+
+# Check for Python 3.10 or 3.9
 if command -v python3.10 >/dev/null 2>&1; then
     PYTHON_CMD=python3.10
+    PYTHON_VERSION="3.10"
+elif command -v python3.9 >/dev/null 2>&1; then
+    PYTHON_CMD=python3.9
+    PYTHON_VERSION="3.9"
 else
-    echo "Python 3.10 is required but not found. Please install Python 3.10"
+    echo -e "${RED}Neither Python 3.9 nor 3.10 was found. Please install either version:${NC}"
     echo "On Ubuntu/Debian: sudo apt install python3.10 python3.10-venv"
+    echo "                  or"
+    echo "                  sudo apt install python3.9 python3.9-venv"
     echo "On macOS: brew install python@3.10"
+    echo "          or"
+    echo "          brew install python@3.9"
     exit 1
 fi
 
+echo -e "${YELLOW}Found Python ${PYTHON_VERSION}${NC}"
+
 # Create virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
-    echo -e "${YELLOW}Creating Python 3.10 virtual environment...${NC}"
+    echo -e "${YELLOW}Creating Python ${PYTHON_VERSION} virtual environment...${NC}"
     $PYTHON_CMD -m venv --system-site-packages venv
 else
     echo -e "${YELLOW}Virtual environment already exists${NC}"
-    # Check if it's Python 3.10
+    # Check if it's the correct Python version
     VENV_PYTHON_VERSION=$(./venv/bin/python --version)
-    if [[ $VENV_PYTHON_VERSION != *"3.10"* ]]; then
-        echo -e "${YELLOW}Existing environment is not Python 3.10. Recreating...${NC}"
+    if [[ $VENV_PYTHON_VERSION != *"$PYTHON_VERSION"* ]]; then
+        echo -e "${YELLOW}Existing environment is not Python ${PYTHON_VERSION}. Recreating...${NC}"
         rm -rf venv
         $PYTHON_CMD -m venv --system-site-packages venv
     fi
@@ -49,6 +67,7 @@ echo -e "${YELLOW}Installing core dependencies...${NC}"
 pip install aiohttp \
     websockets \
     opencv-contrib-python \
+    mediapipe \
     pytest \
     pytest-asyncio
 

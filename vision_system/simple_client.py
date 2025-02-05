@@ -40,6 +40,32 @@ def draw_markers(frame, markers):
                   thickness=-1)
     return frame
 
+def draw_hands(frame, hands_data):
+    """Draw detected hand landmarks on the frame."""
+    if not hands_data:
+        return frame
+    
+    # Colors for each hand
+    COLORS = [(0, 255, 0), (255, 0, 0)]  # Green for first hand, Red for second
+    
+    for hand_idx, hand_landmarks in enumerate(hands_data):
+        color = COLORS[hand_idx % len(COLORS)]
+        
+        # Draw each landmark point
+        h, w = frame.shape[:2]
+        for landmark in hand_landmarks:
+            # Convert normalized coordinates to pixel coordinates
+            px = int(landmark['x'] * w)
+            py = int(landmark['y'] * h)
+            
+            # Draw circle at landmark position
+            cv2.circle(frame, (px, py), 3, color, -1)
+            
+        # Draw connections between landmarks (optional)
+        # You can add hand connections here if needed
+            
+    return frame
+
 async def receive_frames(ws_uri, width, height, fps, mirror):
     try:
         async with websockets.connect(ws_uri, ping_interval=20, ping_timeout=20) as websocket:
@@ -81,6 +107,9 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                         if frame is not None:
                             # Draw markers if any were detected
                             frame = draw_markers(frame, markers)
+                            # Draw hands if any were detected
+                            hand_data = marker_data.get('hands', [])
+                            frame = draw_hands(frame, hand_data)
                             
                             # Display the image in a window
                             cv2.imshow('Received Frame', frame)
@@ -91,9 +120,13 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                     else:
                         # Handle marker data as JSON
                         marker_data = json.loads(frame_data)
+                        
                         markers = marker_data.get('markers', [])
                         if markers:
                             print(f"Marker data: {markers}")
+                        hand_data = marker_data.get('hands', [])
+                        if hand_data:
+                            print(f"Hand data: {hand_data}")
 
                 except websockets.ConnectionClosed:
                     print("Connection closed by server")
