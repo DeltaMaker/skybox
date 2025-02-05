@@ -214,6 +214,22 @@ class CameraServer:
         """Send frames to connected clients, resizing once per unique size and sending marker data."""
         try:
             while self.clients:
+                # Find the largest requested size among all clients
+                largest_size = max(
+                    (client_info['size'] for client_info in self.clients.values()),
+                    key=lambda s: s[0] * s[1]
+                )
+
+                # Update camera configuration if the largest size has changed
+                if largest_size != self.base_size:
+                    if PICAMERA2_AVAILABLE:
+                        print(f"Reconfiguring camera for new largest size: {largest_size}")
+                        self.picam2.stop_recording()
+                        self.start_picamera2(largest_size, 
+                                          min(client['fps'] for client in self.clients.values()))
+                    else:
+                        self.base_size = largest_size
+
                 frame = self.get_current_frame()
 
                 if frame is not None:
@@ -228,12 +244,10 @@ class CameraServer:
                                 'hands': False,
                                 'size': size
                             }
-                        # Sub-group by mirror flag
                         if client_info.get('mirror', False):
                             clients_by_size[size]['mirror'].append(client_ws)
                         else:
                             clients_by_size[size]['no_mirror'].append(client_ws)
-                        # Update track_hands if any client needs it
                         if client_info.get('hands', False):
                             clients_by_size[size]['hands'] = True
 
@@ -242,11 +256,6 @@ class CameraServer:
                     largest_resized_frame = None
                     if any(info['hands'] for info in clients_by_size.values()):
                         # Find largest size that needs hand tracking
-                        largest_size = max(
-                            (info['size'] for info in clients_by_size.values() if info['hands']),
-                            key=lambda s: s[0] * s[1]
-                        )
-                        # Process hands once at largest size
                         largest_resized_frame = self.get_resized_frame(frame, largest_size)
                         hand_data = self.hand_tracker.process_frame(largest_resized_frame)
 
