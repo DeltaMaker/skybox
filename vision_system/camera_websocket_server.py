@@ -47,32 +47,32 @@ class CameraServer:
 
     def initialize_picamera2(self):
         """Initialize Picamera2 if available."""
-        sensor_modes = self.picam2.sensor_modes
-        if sensor_modes:
-            max_mode = max(sensor_modes, key=lambda x: x['size'][0] * x['size'][1])
-            full_res = max_mode['size']
-        else:
-            full_res = (2304, 1296)
+        # Use 1920x1080 as default resolution - better balance of quality and performance
+        full_res = (1920, 1080)  # Mode 1 for OV5647
 
-        # Always capture at full resolution
-        video_config = self.picam2.create_video_configuration(
-            main={"size": full_res},  # Use full resolution for main stream
-            lores=None,
-            raw={"size": full_res},
-            buffer_count=4,
-            controls={
-                "FrameDurationLimits": (33333, 33333),  # ~30fps
-                "NoiseReductionMode": 2,
-                "Sharpness": 2.0,
-                "Brightness": 0.0,
-                "Contrast": 1.0,
-                "Saturation": 1.0,
-                "ExposureValue": 0,
-                "AwbEnable": 1,
-                "AeEnable": 1,
-            }
-        )
-        self.picam2.configure(video_config)
+        try:
+            video_config = self.picam2.create_video_configuration(
+                main={"size": full_res},
+                lores=None,
+                raw={"size": full_res},
+                buffer_count=4,
+                controls={
+                    "FrameDurationLimits": (33333, 33333),  # ~30fps
+                    "NoiseReductionMode": 2,
+                    "Sharpness": 2.0,
+                    "Brightness": 0.0,
+                    "Contrast": 1.0,
+                    "Saturation": 1.0,
+                    "ExposureValue": 0,
+                    "AwbEnable": 1,
+                    "AeEnable": 1,
+                }
+            )
+            self.picam2.configure(video_config)
+            print(f"Camera initialized with resolution {full_res}")
+        except Exception as e:
+            logging.error(f"Failed to initialize camera: {e}")
+            raise
 
     def get_current_frame(self):
         """Capture the current frame from the camera."""
@@ -182,35 +182,34 @@ class CameraServer:
 
     def start_picamera2(self, size, fps):
         """Start the Picamera2 camera with the specified settings."""
-        sensor_modes = self.picam2.sensor_modes
-        if sensor_modes:
-            max_mode = max(sensor_modes, key=lambda x: x['size'][0] * x['size'][1])
-            full_res = max_mode['size']
-        else:
-            full_res = (2304, 1296)
+        # Use 1920x1080 as default resolution
+        full_res = (1920, 1080)  # Mode 1 for OV5647
 
-        # Always capture at full resolution
-        video_config = self.picam2.create_video_configuration(
-            main={"size": full_res},  # Use full resolution
-            lores=None,
-            raw={"size": full_res},
-            buffer_count=4,
-            controls={
-                "FrameDurationLimits": (int(1/fps * 1000000), int(1/fps * 1000000)),
-                "NoiseReductionMode": 2,
-                "Sharpness": 2.0,
-                "Brightness": 0.0,
-                "Contrast": 1.0,
-                "Saturation": 1.0,
-                "ExposureValue": 0,
-                "AwbEnable": 1,
-                "AeEnable": 1,
-            }
-        )
-        self.picam2.configure(video_config)
-        self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
-        self.base_size = full_res  # Store the full resolution as base_size
-        print(f"Picamera2 started at full resolution={full_res}, target_size={size}, fps={fps}")
+        try:
+            video_config = self.picam2.create_video_configuration(
+                main={"size": full_res},
+                lores=None,
+                raw={"size": full_res},
+                buffer_count=4,
+                controls={
+                    "FrameDurationLimits": (int(1/fps * 1000000), int(1/fps * 1000000)),
+                    "NoiseReductionMode": 2,
+                    "Sharpness": 2.0,
+                    "Brightness": 0.0,
+                    "Contrast": 1.0,
+                    "Saturation": 1.0,
+                    "ExposureValue": 0,
+                    "AwbEnable": 1,
+                    "AeEnable": 1,
+                }
+            )
+            self.picam2.configure(video_config)
+            self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
+            self.base_size = full_res
+            print(f"Picamera2 started at resolution={full_res}, target_size={size}, fps={fps}")
+        except Exception as e:
+            logging.error(f"Failed to start camera: {e}")
+            raise
 
     async def send_frames_loop(self):
         """Continuous loop to send frames to all connected clients."""
