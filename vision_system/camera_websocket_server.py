@@ -47,8 +47,28 @@ class CameraServer:
 
     def initialize_picamera2(self):
         """Initialize Picamera2 if available."""
-        # Start the camera with the default size and framerate.
-        video_config = self.picam2.create_video_configuration(main={"size": (640, 480)})
+        # Get the full sensor resolution
+        sensor_modes = self.picam2.sensor_modes
+        if sensor_modes:
+            # Use the highest resolution mode
+            max_mode = max(sensor_modes, key=lambda x: x['size'][0] * x['size'][1])
+            full_res = max_mode['size']
+        else:
+            # Fallback resolution if sensor modes not available
+            full_res = (2304, 1296)  # Common resolution for Pi Camera v2
+
+        # Configure camera with full resolution
+        video_config = self.picam2.create_video_configuration(
+            main={"size": (640, 480)},  # Keep default output size
+            lores=None,  # Disable low-res stream
+            raw={"size": full_res},  # Use full sensor area
+            buffer_count=4,  # Increase buffer for smooth streaming
+            controls={
+                "FrameDurationLimits": (33333, 33333),  # ~30fps
+                "NoiseReductionMode": 0,  # Minimal processing
+                "Sharpness": 0,  # Minimal processing
+            }
+        )
         self.picam2.configure(video_config)
 
     def get_current_frame(self):
@@ -159,7 +179,25 @@ class CameraServer:
 
     def start_picamera2(self, size, fps):
         """Start the Picamera2 camera with the specified settings."""
-        video_config = self.picam2.create_video_configuration(main={"size": size}, controls={"FrameRate": fps})
+        # Get the full sensor resolution
+        sensor_modes = self.picam2.sensor_modes
+        if sensor_modes:
+            max_mode = max(sensor_modes, key=lambda x: x['size'][0] * x['size'][1])
+            full_res = max_mode['size']
+        else:
+            full_res = (2304, 1296)
+
+        video_config = self.picam2.create_video_configuration(
+            main={"size": size},
+            lores=None,
+            raw={"size": full_res},
+            buffer_count=4,
+            controls={
+                "FrameDurationLimits": (int(1/fps * 1000000), int(1/fps * 1000000)),
+                "NoiseReductionMode": 0,
+                "Sharpness": 0,
+            }
+        )
         self.picam2.configure(video_config)
         self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
         self.base_size = size
