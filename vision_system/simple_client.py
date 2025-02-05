@@ -30,6 +30,7 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                 return
 
             # Now, continuously receive frames and marker data
+            markers = []
             while True:
                 try:
                     # Receive binary frame data (MJPEG)
@@ -43,6 +44,10 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                         frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
 
                         if frame is not None:
+                            if markers:
+                                for marker in markers:
+                                    corners = np.array(marker.get('corners', []), dtype=np.int32).reshape(-1, 1, 2)
+                                    cv2.polylines(frame, [corners], True, (0, 255, 0), 1)
                             # Display the image in a window
                             cv2.imshow('Received Frame', frame)
 
@@ -52,7 +57,9 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                     else:
                         # Handle marker data as JSON
                         marker_data = json.loads(frame_data)
-                        print(f"Marker data: {marker_data}")
+                        markers = marker_data.get('markers', [])
+                        if markers:
+                            print(f"Marker data: {markers}")
 
                 except websockets.ConnectionClosed:
                     print("Connection closed by server")

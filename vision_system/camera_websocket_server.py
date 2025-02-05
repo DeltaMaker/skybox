@@ -71,18 +71,21 @@ class CameraServer:
         runner = web.AppRunner(app)
         await runner.setup()
 
-        # Start both WebSocket and HTTP on the same port
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
 
         print(f"Server started on ws://{self.host}:{self.port} (WebSocket and HTTP)")
 
+        # Start the frame sending task
+        asyncio.create_task(self.send_frames_loop())
+
+        # Keep the server running
         while True:
             await asyncio.sleep(3600)
 
     async def websocket_handler(self, request):
         """Handle client subscriptions for camera frames."""
-        ws = web.WebSocketResponse(heartbeat=10)  # Sends pings every 10 seconds
+        ws = web.WebSocketResponse(heartbeat=10)
         await ws.prepare(request)
 
         try:
@@ -93,8 +96,8 @@ class CameraServer:
                 config = json.loads(config_message.data)
 
                 # Extract custom frame size, FPS, and mirror flag from client subscription
-                custom_size = tuple(config.get('size', (640, 480)))  # Default to 640x480 if not provided
-                custom_fps = config.get('fps', 15)  # Default to 15 FPS if not provided
+                custom_size = tuple(config.get('size', (640, 480)))
+                custom_fps = config.get('fps', 15)
                 mirror = config.get('mirror', False)
 
                 print(f"New client subscribed with size={custom_size}, fps={custom_fps}, mirror={mirror}")
@@ -102,12 +105,10 @@ class CameraServer:
                 # Start the camera with the first client's resolution
                 if not self.running:
                     if PICAMERA2_AVAILABLE:
-                        # Start Picamera2
                         self.start_picamera2(custom_size, custom_fps)
                     else:
-                        # Set OpenCV capture settings if needed
                         self.base_size = (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                                          int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+                                        int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
                     self.running = True
 
                 # Add client to the list with their settings
@@ -126,20 +127,24 @@ class CameraServer:
                 }
                 await ws.send_str(json.dumps(confirmation_message))
 
-                # Start sending frames and marker data to the client
-                await self.send_frames_and_markers()
+                # Keep the connection alive and handle incoming messages
+                try:
+                    async for msg in ws:
+                        if msg.type == web.WSMsgType.ERROR:
+                            print(f'WebSocket connection closed with exception {ws.exception()}')
+                            break
+                        elif msg.type == web.WSMsgType.CLOSE:
+                            print('WebSocket connection closed normally')
+                            break
+                finally:
+                    if ws in self.clients:
+                        del self.clients[ws]
+                    if not self.clients:
+                        self.stop_camera()
 
-        except websockets.ConnectionClosed:
-            print(f"Client disconnected")
-        finally:
-            # Remove client from the list
-            if ws in self.clients:
-                del self.clients[ws]
-
-            # Stop the camera if no clients are connected
-            if not self.clients:
-                self.stop_camera()
-
+        except Exception as e:
+            logging.error(f"Error in websocket handler: {e}")
+        
         return ws
 
     def start_picamera2(self, size, fps):
@@ -149,6 +154,13 @@ class CameraServer:
         self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
         self.base_size = size
         print(f"Picamera2 started with size={size}, fps={fps}")
+
+    async def send_frames_loop(self):
+        """Continuous loop to send frames to all connected clients."""
+        while True:
+            if self.clients:
+                await self.send_frames_and_markers()
+            await asyncio.sleep(0.01)  # Small delay to prevent CPU overload
 
     async def send_frames_and_markers(self):
         """Send frames to connected clients, resizing once per unique size and sending marker data."""
