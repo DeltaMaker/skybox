@@ -22,7 +22,7 @@ except ImportError:
 
 
 class CameraServer:
-    def __init__(self, host='0.0.0.0', port=7160):
+    def __init__(self, host='0.0.0.0', port=7160, camera_id=0):
         self.host = host
         self.port = port
         self.clients = {}  # Store clients with their configurations
@@ -36,7 +36,8 @@ class CameraServer:
             self.output = StreamingOutput()
             self.initialize_picamera2()
         else:
-            self.cap = cv2.VideoCapture(0)  # Use OpenCV's VideoCapture
+            self.camera_id = camera_id
+            self.cap = cv2.VideoCapture(self.camera_id)  # Use OpenCV's VideoCapture
             if not self.cap.isOpened():
                 raise Exception("Error: Camera not accessible using cv2.VideoCapture.")
 
@@ -107,6 +108,8 @@ class CameraServer:
                     if PICAMERA2_AVAILABLE:
                         self.start_picamera2(custom_size, custom_fps)
                     else:
+                        if not self.cap.isOpened():
+                            self.cap = cv2.VideoCapture(self.camera_id)
                         self.base_size = (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                                         int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
                     self.running = True
@@ -169,42 +172,60 @@ class CameraServer:
                 frame = self.get_current_frame()
 
                 if frame is not None:
-                    # Group clients by their requested size
+                    # First group clients by their requested size
                     clients_by_size = {}
                     for client_ws, client_info in self.clients.items():
                         size = client_info['size']
                         if size not in clients_by_size:
-                            clients_by_size[size] = []
-                        clients_by_size[size].append(client_ws)
+                            clients_by_size[size] = {'mirror': [], 'no_mirror': []}
+                        # Sub-group by mirror flag
+                        if client_info.get('mirror', False):
+                            clients_by_size[size]['mirror'].append(client_ws)
+                        else:
+                            clients_by_size[size]['no_mirror'].append(client_ws)
 
-                    # Process each unique size and send the resized frame to all clients with that size
-                    for size, client_ws_list in clients_by_size.items():
+                    # Process each unique size
+                    for size, mirror_groups in clients_by_size.items():
+                        # Resize frame once per unique size
                         resized_frame = self.get_resized_frame(frame, size)
-
-                        # Detect markers in the frame
-                        marker_data = self.marker_tracker.process_frame(resized_frame)
-
-                        # Convert frame to JPEG for transmission
-                        _, encoded_frame = cv2.imencode('.jpg', resized_frame)
-                        frame_bytes = encoded_frame.tobytes()
-
-                        for client_ws in client_ws_list:
-                            try:
-                                # Ensure the WebSocket is still open before sending
+                        print(f"Resized frame to {size}, shape={resized_frame.shape}")
+                        
+                        # Process non-mirrored frame and detect markers
+                        if mirror_groups['no_mirror']:
+                            marker_data = self.marker_tracker.process_frame(resized_frame)
+                            _, encoded_frame = cv2.imencode('.jpg', resized_frame)
+                            frame_bytes = encoded_frame.tobytes()
+                            
+                            # Send to all non-mirror clients
+                            for client_ws in mirror_groups['no_mirror']:
                                 if not client_ws.closed:
-                                    # Send the frame data as binary
-                                    await client_ws.send_bytes(frame_bytes)
-
-                                    # Send the marker data as JSON
-                                    await client_ws.send_str(json.dumps({"markers": marker_data}))
-                                else:
-                                    del self.clients[client_ws]
-
-                            except Exception as e:
-                                logging.error(f"Error sending frame/markers to client: {e}")
-                                # Remove the client from the list on failure
-                                if client_ws in self.clients:
-                                    del self.clients[client_ws]
+                                    try:
+                                        await client_ws.send_bytes(frame_bytes)
+                                        await client_ws.send_str(json.dumps({"markers": marker_data}))
+                                    except Exception as e:
+                                        logging.error(f"Error sending frame/markers to client: {e}")
+                                        if client_ws in self.clients:
+                                            del self.clients[client_ws]
+                        
+                        # Process mirrored frame if needed
+                        if mirror_groups['mirror']:
+                            mirrored_frame = cv2.flip(resized_frame, 1)
+                            print(f"Flipped frame for size {size}, shape={mirrored_frame.shape}")
+                            # Always detect markers on mirrored frame since positions will be different
+                            mirrored_marker_data = self.marker_tracker.process_frame(mirrored_frame)
+                            _, encoded_frame = cv2.imencode('.jpg', mirrored_frame)
+                            frame_bytes = encoded_frame.tobytes()
+                            
+                            # Send to all mirror clients
+                            for client_ws in mirror_groups['mirror']:
+                                if not client_ws.closed:
+                                    try:
+                                        await client_ws.send_bytes(frame_bytes)
+                                        await client_ws.send_str(json.dumps({"markers": mirrored_marker_data}))
+                                    except Exception as e:
+                                        logging.error(f"Error sending frame/markers to client: {e}")
+                                        if client_ws in self.clients:
+                                            del self.clients[client_ws]
 
                 # Adjust sleep rate for frame sending based on FPS
                 if self.clients:
@@ -231,7 +252,7 @@ class CameraServer:
 
     async def http_handler(self, request):
         """Handle HTTP requests to get the current status of connected clients."""
-        clients_status = [{'size': client_info['size'], 'fps': client_info['fps']}
+        clients_status = [{'size': client_info['size'], 'fps': client_info['fps'], 'mirror': client_info['mirror']}
                           for client_info in self.clients.values()]
         return web.json_response({
             'status': 'running' if self.running else 'stopped',
