@@ -47,26 +47,28 @@ class CameraServer:
 
     def initialize_picamera2(self):
         """Initialize Picamera2 if available."""
-        # Get the full sensor resolution
         sensor_modes = self.picam2.sensor_modes
         if sensor_modes:
-            # Use the highest resolution mode
             max_mode = max(sensor_modes, key=lambda x: x['size'][0] * x['size'][1])
             full_res = max_mode['size']
         else:
-            # Fallback resolution if sensor modes not available
-            full_res = (2304, 1296)  # Common resolution for Pi Camera v2
+            full_res = (2304, 1296)
 
-        # Configure camera with full resolution
         video_config = self.picam2.create_video_configuration(
-            main={"size": (640, 480)},  # Keep default output size
-            lores=None,  # Disable low-res stream
-            raw={"size": full_res},  # Use full sensor area
-            buffer_count=4,  # Increase buffer for smooth streaming
+            main={"size": (640, 480)},
+            lores=None,
+            raw={"size": full_res},
+            buffer_count=4,
             controls={
                 "FrameDurationLimits": (33333, 33333),  # ~30fps
-                "NoiseReductionMode": 0,  # Minimal processing
-                "Sharpness": 0,  # Minimal processing
+                "NoiseReductionMode": 2,  # Higher noise reduction (0=Off, 1=Fast, 2=High Quality)
+                "Sharpness": 2.0,         # Increased sharpness (range is -1.0 to 16.0)
+                "Brightness": 0.0,        # Normal brightness (range is -1.0 to 1.0)
+                "Contrast": 1.0,          # Normal contrast (range is 0.0 to 32.0)
+                "Saturation": 1.0,        # Normal saturation (range is 0.0 to 32.0)
+                "ExposureValue": 0,       # Auto exposure
+                "AwbEnable": 1,           # Enable Auto White Balance
+                "AeEnable": 1,            # Enable Auto Exposure
             }
         )
         self.picam2.configure(video_config)
@@ -179,7 +181,6 @@ class CameraServer:
 
     def start_picamera2(self, size, fps):
         """Start the Picamera2 camera with the specified settings."""
-        # Get the full sensor resolution
         sensor_modes = self.picam2.sensor_modes
         if sensor_modes:
             max_mode = max(sensor_modes, key=lambda x: x['size'][0] * x['size'][1])
@@ -194,8 +195,14 @@ class CameraServer:
             buffer_count=4,
             controls={
                 "FrameDurationLimits": (int(1/fps * 1000000), int(1/fps * 1000000)),
-                "NoiseReductionMode": 0,
-                "Sharpness": 0,
+                "NoiseReductionMode": 2,  # Higher noise reduction
+                "Sharpness": 2.0,         # Increased sharpness
+                "Brightness": 0.0,        # Normal brightness
+                "Contrast": 1.0,          # Normal contrast
+                "Saturation": 1.0,        # Normal saturation
+                "ExposureValue": 0,       # Auto exposure
+                "AwbEnable": 1,           # Enable Auto White Balance
+                "AeEnable": 1,            # Enable Auto Exposure
             }
         )
         self.picam2.configure(video_config)
