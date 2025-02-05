@@ -188,7 +188,6 @@ class CameraServer:
                     for size, mirror_groups in clients_by_size.items():
                         # Resize frame once per unique size
                         resized_frame = self.get_resized_frame(frame, size)
-                        print(f"Resized frame to {size}, shape={resized_frame.shape}")
                         
                         # Process non-mirrored frame and detect markers
                         if mirror_groups['no_mirror']:
@@ -210,7 +209,6 @@ class CameraServer:
                         # Process mirrored frame if needed
                         if mirror_groups['mirror']:
                             mirrored_frame = cv2.flip(resized_frame, 1)
-                            print(f"Flipped frame for size {size}, shape={mirrored_frame.shape}")
                             # Always detect markers on mirrored frame since positions will be different
                             mirrored_marker_data = self.marker_tracker.process_frame(mirrored_frame)
                             _, encoded_frame = cv2.imencode('.jpg', mirrored_frame)
