@@ -5,6 +5,41 @@ import cv2
 import numpy as np
 import argparse
 
+def draw_markers(frame, markers):
+    """Draw detected markers on the frame."""
+    if not markers:
+        return frame
+    
+    for marker in markers:
+        # Convert flat corner array into points array
+        corners = np.array(marker['corners']).reshape(4, 2).astype(np.int32)
+        
+        # Draw marker outline
+        cv2.polylines(frame, 
+                     [corners.reshape(-1, 1, 2)],
+                     isClosed=True,
+                     color=(0, 255, 0),
+                     thickness=2)
+        
+        # Draw marker ID
+        marker_id = str(marker.get('id', '-'))
+        text_pos = (int(corners[0][0]), int(corners[0][1] - 10))
+        cv2.putText(frame,
+                   f"{marker_id}",
+                   text_pos,
+                   cv2.FONT_HERSHEY_SIMPLEX,
+                   0.75,
+                   (0, 255, 0),
+                   2)
+        
+        # Draw orientation indicator (red dot at first corner)
+        cv2.circle(frame,
+                  (int(corners[0][0]), int(corners[0][1])),
+                  radius=3,
+                  color=(0, 0, 255),
+                  thickness=-1)
+    return frame
+
 async def receive_frames(ws_uri, width, height, fps, mirror):
     try:
         async with websockets.connect(ws_uri, ping_interval=20, ping_timeout=20) as websocket:
@@ -44,10 +79,9 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                         frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
 
                         if frame is not None:
-                            if markers:
-                                for marker in markers:
-                                    corners = np.array(marker.get('corners', []), dtype=np.int32).reshape(-1, 1, 2)
-                                    cv2.polylines(frame, [corners], True, (0, 255, 0), 1)
+                            # Draw markers if any were detected
+                            frame = draw_markers(frame, markers)
+                            
                             # Display the image in a window
                             cv2.imshow('Received Frame', frame)
 
