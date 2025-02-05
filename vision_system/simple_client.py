@@ -92,6 +92,7 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
 
             # Now, continuously receive frames and marker data
             markers = []
+            hands = []
             while True:
                 try:
                     # Receive binary frame data (MJPEG)
@@ -108,8 +109,7 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                             # Draw markers if any were detected
                             frame = draw_markers(frame, markers)
                             # Draw hands if any were detected
-                            hand_data = marker_data.get('hands', [])
-                            frame = draw_hands(frame, hand_data)
+                            frame = draw_hands(frame, hands)
                             
                             # Display the image in a window
                             cv2.imshow('Received Frame', frame)
@@ -119,14 +119,14 @@ async def receive_frames(ws_uri, width, height, fps, mirror):
                                 break
                     else:
                         # Handle marker data as JSON
-                        marker_data = json.loads(frame_data)
+                        json_data = json.loads(frame_data)
                         
-                        markers = marker_data.get('markers', [])
+                        markers = json_data.get('markers', [])
                         if markers:
                             print(f"Marker data: {markers}")
-                        hand_data = marker_data.get('hands', [])
-                        if hand_data:
-                            print(f"Hand data: {hand_data}")
+                        hands = json_data.get('hands', [])
+                        if hands:
+                            print(f"Hand data: {hands}")
 
                 except websockets.ConnectionClosed:
                     print("Connection closed by server")

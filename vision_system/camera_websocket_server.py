@@ -7,6 +7,9 @@ import cv2
 import numpy as np
 from aiohttp import web
 import logging
+#from vision_system.marker_tracker import MarkerTracker
+from marker_tracker import MarkerTracker
+from hand_tracker import HandTracker
 
 # Attempt to import Picamera2
 try:
@@ -29,6 +32,7 @@ class CameraServer:
         self.running = False
         self.base_size = None  # The camera's current resolution
         self.marker_tracker = MarkerTracker()  # For ARUCO marker detection
+        self.hand_tracker = HandTracker()  # For hand detection
 
         # Initialize camera depending on whether Picamera2 is available
         if PICAMERA2_AVAILABLE:
@@ -192,6 +196,8 @@ class CameraServer:
                         # Process non-mirrored frame and detect markers
                         if mirror_groups['no_mirror']:
                             marker_data = self.marker_tracker.process_frame(resized_frame)
+                            hand_data = self.hand_tracker.process_frame(resized_frame)            
+                
                             _, encoded_frame = cv2.imencode('.jpg', resized_frame)
                             frame_bytes = encoded_frame.tobytes()
                             
@@ -199,8 +205,12 @@ class CameraServer:
                             for client_ws in mirror_groups['no_mirror']:
                                 if not client_ws.closed:
                                     try:
+                                        await client_ws.send_str(json.dumps({
+                                            "markers": marker_data, 
+                                            "hands": hand_data
+                                        }))
                                         await client_ws.send_bytes(frame_bytes)
-                                        await client_ws.send_str(json.dumps({"markers": marker_data}))
+                                        
                                     except Exception as e:
                                         logging.error(f"Error sending frame/markers to client: {e}")
                                         if client_ws in self.clients:
