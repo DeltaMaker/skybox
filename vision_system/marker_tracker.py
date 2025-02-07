@@ -3,18 +3,26 @@ import numpy as np
 import cv2.aruco as aruco
 import json
 
+
+def convert_numpy_types(obj):
+    if isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
 class MarkerTracker:
-    def __init__(self, websocket_client=None, marker_size=0.01, total_markers=50, dictionary_id=aruco.DICT_4X4_50, draw=True):
-        self.websocket_client = websocket_client  # WebSocket client for sending data
-        self.aruco_dict = aruco.getPredefinedDictionary(dictionary_id)
-        #self.parameters = aruco.DetectorParameters_create()
-        self.detector = aruco  # Use the aruco module directly for detecting markers
+    def __init__(self, marker_size=0.01, total_markers=50, dictionary_id=cv2.aruco.DICT_4X4_50):
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
+        self.detector = cv2.aruco  # Use the aruco module directly for detecting markers
         self.marker_size = marker_size
         self.camera_matrix, self.distortion_coeffs = self.default_camera_calibration()
-        self.draw = draw
-        self.detected_ids = []
-        self.crop_rect = None  # Assuming this might be set for image cropping, but not used here
-        self.feature_vector = None
         self.corners = self.ids = None
 
     def default_camera_calibration(self, image_width=640, image_height=480):
@@ -26,35 +34,23 @@ class MarkerTracker:
         distortion_coeffs = np.zeros((4, 1))
         return camera_matrix, distortion_coeffs
 
-    def get_detected_ids(self):
-        return self.detected_ids
-
     def process_frame(self, frame):
+        """Detect ARUCO markers in the frame."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        #corners, ids, rejected = self.detector.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
-        self.corners, self.ids, rejected = self.detector.detectMarkers(gray, self.aruco_dict)
+        self.corners, self.ids, _ = self.detector.detectMarkers(gray, self.aruco_dict)
+        marker_data = []
 
-        if self.ids is None:
-            self.detected_ids = None
-        else:
-            flat_ids = self.ids.flatten().tolist()
-            markers_data = []
-            for marker_id, marker_corners in zip(flat_ids, self.corners):
-                marker_data = {
+        if self.ids is not None:
+            for marker_id, marker_corners in zip(self.ids.flatten(), self.corners):
+                marker_data.append({
                     "id": marker_id,
-                    "corners": marker_corners.flatten().tolist()
-                }
-                markers_data.append(marker_data)
+                    "corners": marker_corners.flatten()
+                })
 
-            # Update detected_ids for external access if needed
-            self.detected_ids = flat_ids
+        return convert_numpy_types(marker_data)
 
-            if self.websocket_client:
-                # Serialize and send the marker data
-                json_data = json.dumps(markers_data)
-                self.websocket_client.send(json_data)
-
-    def render_frame(self, frame):
-        if self.draw:
-            aruco.drawDetectedMarkers(frame, self.corners, self.ids)
-        return frame
+    def get_detected_ids(self):
+        """Get the list of detected marker IDs."""
+        if self.ids is None:
+            return []
+        return self.ids.flatten().tolist()
