@@ -189,8 +189,13 @@ class SimpleWebsocketServer:
         clients_status = self.status_message()
         return web.json_response({
             'status': 'running' if self.running else 'stopped',
+            'server_info': self.get_status_info(),
             'clients': clients_status or []
         })
+
+    def get_status_info(self):
+        """Template method for server-specific status information."""
+        return {}  # Base implementation returns empty dict
 
     def run(self):
         """Run the WebSocket server."""
