@@ -5,27 +5,38 @@ Requires picamera2 package to be installed.
 
 import logging
 import time
+import io
+from threading import Condition
+import cv2
+import numpy as np
 
-# Attempt to import Picamera2
 try:
     from picamera2 import Picamera2
     from picamera2.encoders import MJPEGEncoder
     from picamera2.outputs import FileOutput
-
-    PICAMERA2_AVAILABLE = True
     print("Picamera2 is available.")
 except ImportError:
-    PICAMERA2_AVAILABLE = False
-    print("Picamera2 not available. Using OpenCV's VideoCapture instead.")
+    print("Picamera2 is not available on this system.")
+    raise
 
 from camera_server import CameraServer
 
+class StreamingOutput(io.BufferedIOBase):
+    def __init__(self):
+        self.frame = None
+        self.condition = Condition()
+
+    def write(self, buf):
+        """Save the latest frame."""
+        with self.condition:
+            self.frame = buf
+            self.condition.notify_all()
+
 class Picamera2Server(CameraServer):
     def __init__(self, host='0.0.0.0', port=7160, debug=False):
-        if not PICAMERA2_AVAILABLE:
-            raise ImportError("Picamera2 is not available on this system")
         self.picam2 = None
         self.camera_modes = None
+        self.output = StreamingOutput()
         super().__init__(host, port, debug)
 
     def _get_camera_modes(self):
@@ -73,6 +84,42 @@ class Picamera2Server(CameraServer):
                 print(f"\nError getting camera modes: {e}")
             return []
 
+    def _configure_camera(self, size=None, is_fallback=False):
+        """Configure camera with given size or fallback configuration."""
+        try:
+            if self.debug:
+                print(f"\n{'Fallback' if is_fallback else 'Initial'} configuration:")
+                print("-" * 40)
+                if size:
+                    print(f"Configuring camera with size {size}")
+            
+            if size:
+                video_config = self.picam2.create_video_configuration(
+                    main={"size": size, "format": "RGB888"},
+                    buffer_count=4,
+                    controls={
+                        "FrameDurationLimits": (33333, 33333),  # ~30fps
+                    }
+                )
+            else:
+                video_config = self.picam2.create_video_configuration()
+            
+            self.picam2.configure(video_config)
+            self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
+            
+            self.base_size = size or self.picam2.camera_properties['ScalerCropMaximum'][:2]
+            
+            if self.debug:
+                print(f"Camera configured successfully at {self.base_size}")
+                print("-" * 40)
+            
+            return True
+            
+        except Exception as e:
+            if not is_fallback:  # Only log warning if this isn't already the fallback attempt
+                logging.warning(f"Failed to configure camera with {'initial' if size else 'fallback'} settings: {e}")
+            return False
+
     def _setup_camera(self):
         if not self.picam2:
             self.picam2 = Picamera2()
@@ -99,47 +146,32 @@ class Picamera2Server(CameraServer):
             if chosen_mode:
                 print(f"Selected mode: {chosen_mode['resolution'][0]}x{chosen_mode['resolution'][1]} @ {chosen_mode['fps']:.2f} fps")
             else:
-                print("Using default fallback mode: 1920x1080")
+                print("Using default fallback mode")
         
         initial_size = chosen_mode['resolution'] if chosen_mode else (1920, 1080)
         
-        try:
-            if self.debug:
-                print(f"Configuring camera with size {initial_size}")
-            
-            video_config = self.picam2.create_video_configuration(
-                main={"size": initial_size, "format": "RGB888"},
-                buffer_count=4,
-                controls={
-                    "FrameDurationLimits": (33333, 33333),  # ~30fps
-                }
-            )
-            self.picam2.configure(video_config)
-            self.picam2.start()
-            self.base_size = initial_size
-            if self.debug:
-                print(f"Camera configured successfully at {initial_size}")
-                print("-" * 40)
-                
-        except Exception as e:
-            logging.warning(f"Failed to configure camera with initial settings: {e}")
-            if self.debug:
-                print("\nFalling back to default configuration:")
-                print("-" * 40)
-            video_config = self.picam2.create_video_configuration()
-            self.picam2.configure(video_config)
-            self.picam2.start()
-            self.base_size = self.picam2.camera_properties['ScalerCropMaximum'][:2]
-            if self.debug:
-                print(f"Using fallback configuration: {self.base_size}")
-                print("-" * 40)
+        # Try initial configuration, fall back if it fails
+        if not self._configure_camera(initial_size):
+            if not self._configure_camera(is_fallback=True):
+                raise RuntimeError("Failed to configure camera with both initial and fallback settings")
 
     def _capture_frame(self):
         if not self.picam2:
             self._setup_camera()
-        return self.picam2.capture_array()
+        
+        frame = self.output.frame
+        if frame:
+            np_arr = np.frombuffer(frame, np.uint8)
+            return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        return None
 
     def _cleanup_camera(self):
         if self.picam2:
-            self.picam2.stop()
-            self.picam2.close() 
+            try:
+                self.picam2.stop_recording()
+            except Exception as e:
+                logging.error(f"Error stopping recording: {e}")
+            try:
+                self.picam2.close()
+            except Exception as e:
+                logging.error(f"Error closing camera: {e}") 
