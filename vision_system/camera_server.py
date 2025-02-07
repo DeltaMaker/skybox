@@ -97,71 +97,113 @@ class CameraServer(SimpleWebsocketServer):
             if not self.cap.isOpened():
                 raise Exception("Error: Camera not accessible using cv2.VideoCapture.")
 
+        if self.debug:
+            print(f"Camera initialized with type: {self.camera_type}")
+
     def initialize_picamera2(self):
         """Initialize Picamera2 if available."""
         try:
             if not self.picam2:
+                if self.debug:
+                    print("Creating new Picamera2 instance...")
                 self.picam2 = Picamera2()
             
             # Start with a more modest resolution
-            initial_size = (1280, 720)  # Changed from 1920x1080
+            initial_size = (1296, 972)
 
-            # Configure with more robust error handling
+            if self.debug:
+                print(f"Configuring Picamera2 with size {initial_size}")
+
             try:
                 video_config = self.picam2.create_video_configuration(
                     main={"size": initial_size, "format": "RGB888"},
-                    buffer_count=4,
-                    controls={
-                        "FrameDurationLimits": (33333, 33333),  # ~30fps
-                        "NoiseReductionMode": 2,
-                    }
+                    buffer_count=4
                 )
                 self.picam2.configure(video_config)
+                self.picam2.start()
                 self.base_size = initial_size
-                print(f"Camera initialized with resolution {initial_size}")
+                if self.debug:
+                    print("Picamera2 configuration and start successful")
+
             except Exception as e:
-                print(f"Failed to configure camera with initial settings: {e}")
+                logging.error(f"Failed to configure camera with initial settings: {e}")
+                if self.debug:
+                    print("Falling back to default configuration...")
                 # Fallback configuration
                 video_config = self.picam2.create_video_configuration()
                 self.picam2.configure(video_config)
+                self.picam2.start()
                 self.base_size = self.picam2.camera_properties['ScalerCropMaximum'][:2]
                 print(f"Using fallback configuration with resolution {self.base_size}")
 
         except Exception as e:
             logging.error(f"Failed to initialize camera: {e}")
+            if self.debug:
+                print(f"Camera initialization error: {str(e)}")
             raise
 
     def get_current_frame(self):
         """Capture the current frame from the camera or HTTP stream."""
         try:
             if self.camera_type == "http":
-                response = requests.get(self.http_url, timeout=1.0)  # Added timeout
+                if self.debug:
+                    print("Fetching HTTP frame...")
+                response = requests.get(self.http_url, timeout=1.0)
                 if response.status_code == 200:
                     np_arr = np.frombuffer(response.content, np.uint8)
                     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                     if frame is None:
-                        raise ValueError("Failed to decode image")
+                        raise ValueError("Failed to decode HTTP frame")
                     return frame
                 else:
-                    logging.error(f"Failed to fetch frame from HTTP: {response.status_code}")
+                    logging.error(f"Failed to fetch HTTP frame: {response.status_code}")
                     return None
+
             elif self.camera_type == "picamera2":
-                if not self.output or not self.output.frame:
-                    return None
-                np_arr = np.frombuffer(self.output.frame, np.uint8)
-                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if frame is None:
-                    raise ValueError("Failed to decode Picamera2 frame")
-                return frame
+                if self.debug:
+                    print("Capturing Picamera2 frame...")
+                try:
+                    if not self.picam2:
+                        if self.debug:
+                            print("Creating new Picamera2 instance...")
+                        self.initialize_picamera2()
+                    
+                    # Try to capture a frame
+                    frame = self.picam2.capture_array()
+                    if frame is None:
+                        raise ValueError("Failed to capture Picamera2 frame")
+                    return frame
+                    
+                except Exception as e:
+                    if self.debug:
+                        print(f"Picamera2 capture failed, attempting restart: {e}")
+                    try:
+                        self.initialize_picamera2()
+                        self.picam2.start()
+                        frame = self.picam2.capture_array()
+                        if frame is not None:
+                            return frame
+                    except Exception as e2:
+                        raise ValueError(f"Failed to restart Picamera2: {e2}")
+
             else:  # opencv
-                if not self.cap.isOpened():
-                    self.cap.open(self.camera_id)  # Try to reopen if closed
+                if self.debug:
+                    print("Capturing OpenCV frame...")
+                if not self.cap or not self.cap.isOpened():
+                    if self.debug:
+                        print("OpenCV camera not open, attempting to open...")
+                    self.cap = cv2.VideoCapture(self.camera_id)
+                    if not self.cap.isOpened():
+                        raise ValueError("Failed to open OpenCV camera")
                 ret, frame = self.cap.read()
                 if not ret or frame is None:
                     raise ValueError("Failed to read OpenCV frame")
                 return frame
+
         except Exception as e:
             logging.error(f"Error capturing frame ({self.camera_type}): {e}")
+            if self.debug:
+                print(f"Frame capture error: {str(e)}")
             return None
 
     def extract_client_info(self, config):
@@ -317,7 +359,7 @@ def main():
     # Use either:
     # camera_server = CameraServer(host='0.0.0.0', port=7160)  # For local camera
     # or:
-    camera_server = CameraServer(host='0.0.0.0', port=7160) #, http_url=http_url)  # For HTTP camera
+    camera_server = CameraServer(host='0.0.0.0', port=7160, debug=True) #, http_url=http_url)  # For HTTP camera
 
     try:
         camera_server.run()
