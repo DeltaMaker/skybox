@@ -39,6 +39,7 @@ from hand_tracker import HandTracker
 from simple_server import SimpleWebsocketServer
 import requests
 from urllib.parse import urlparse
+import asyncio
 
 # Attempt to import Picamera2
 try:
@@ -209,6 +210,11 @@ class CameraServer(SimpleWebsocketServer):
 
     async def get_broadcast_data(self):
         """Get the current frame and process it."""
+        # Sleep based on highest requested frame rate among clients
+        if self.clients:
+            fastest_fps = max(client.get('fps', 1) for client in self.clients.values())
+            await asyncio.sleep(1 / fastest_fps)
+        
         frame = self.get_current_frame()
         if frame is not None:
             return {

@@ -111,7 +111,7 @@ class SimpleWebsocketServer:
                         await self.broadcast_to_clients(message_data)
                 except Exception as e:
                     logging.error(f"Error in broadcast loop: {e}")
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01)  # Small sleep to prevent busy loop
 
     async def broadcast_to_clients(self, message_data):
         """Handle the actual sending of data to clients."""
