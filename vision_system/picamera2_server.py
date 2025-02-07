@@ -96,19 +96,21 @@ class Picamera2Server(CameraServer):
             
             if size:
                 video_config = self.picam2.create_video_configuration(
-                    main={"size": size, "format": "RGB888"},
+                    main={"size": (1296, 972), "format": "RGB888"},  # Fixed resolution
                     buffer_count=4,
                     controls={
                         "FrameDurationLimits": (33333, 33333),  # ~30fps
                     }
                 )
             else:
-                video_config = self.picam2.create_video_configuration()
+                video_config = self.picam2.create_video_configuration(
+                    main={"size": (1296, 972), "format": "RGB888"}  # Fixed resolution for fallback too
+                )
             
             self.picam2.configure(video_config)
             self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
             
-            self.base_size = size or self.picam2.camera_properties['ScalerCropMaximum'][:2]
+            self.base_size = (1296, 972)  # Fixed base size
             
             if self.debug:
                 print(f"Camera configured successfully at {self.base_size}")
