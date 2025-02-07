@@ -55,15 +55,16 @@ except ImportError:
 
 
 class CameraServer(SimpleWebsocketServer):
-    def __init__(self, host='0.0.0.0', port=7160, camera_id=0, http_url=None):
-        
-        super().__init__(host, port)
+    def __init__(self, host='0.0.0.0', port=7160, camera_id=0, http_url=None, debug=False):
+        """Initialize the camera server."""
+        super().__init__(host, port, debug)
         self.camera_id = camera_id
         self.http_url = http_url
-        
         self.base_size = None
         self.marker_tracker = MarkerTracker()
         self.hand_tracker = HandTracker()
+        self.frame_count = 0
+        self.last_fps_print = time.time()
        
         self.camera_type = None
         self.picam2 = None
@@ -163,19 +164,16 @@ class CameraServer(SimpleWebsocketServer):
             logging.error(f"Error capturing frame ({self.camera_type}): {e}")
             return None
 
-    def extract_client_info(self, config : dict):
-        # Extract custom frame size, FPS, and mirror flag from client subscription
-        custom_size = tuple(config.get('size', (640, 480)))
-        custom_fps = config.get('fps', 15)
-        mirror = config.get('mirror', False)
-        track_hands = config.get('hands', False)
+    def extract_client_info(self, config):
+        """Extract custom frame size, FPS, and mirror flag from client subscription."""
         client_info = {
-            'size': custom_size,
-            'fps': custom_fps,
-            'mirror': mirror,
-            'hands': track_hands
+            'size': tuple(config.get('size', (640, 480))),
+            'fps': config.get('fps', 15),
+            'mirror': config.get('mirror', False),
+            'hands': config.get('hands', False)
         }
-        print(f"New client subscribed with size={custom_size}, fps={custom_fps}, mirror={mirror}")
+        if self.debug:
+            print(f"New client subscribed with config: {client_info}")
         return client_info
     
 
@@ -213,10 +211,24 @@ class CameraServer(SimpleWebsocketServer):
         # Sleep based on highest requested frame rate among clients
         if self.clients:
             fastest_fps = max(client.get('fps', 1) for client in self.clients.values())
-            await asyncio.sleep(1 / fastest_fps)
+            target_interval = 1 / fastest_fps
+            
+            if self.debug:
+                self.frame_count += 1
+                current_time = time.time()
+                # Print FPS every second
+                if current_time - self.last_fps_print >= 1.0:
+                    actual_fps = self.frame_count / (current_time - self.last_fps_print)
+                    print(f"Target FPS: {fastest_fps:.1f}, Actual FPS: {actual_fps:.1f}")
+                    self.frame_count = 0
+                    self.last_fps_print = current_time
+            
+            await asyncio.sleep(target_interval)
         
         frame = self.get_current_frame()
         if frame is not None:
+            if self.debug:
+                print(f"Frame shape: {frame.shape}, type: {frame.dtype}")
             return {
                 'frame': frame,
                 'timestamp': time.time()
@@ -229,6 +241,9 @@ class CameraServer(SimpleWebsocketServer):
         size = client_info['size']
         mirror = client_info['mirror']
         track_hands = client_info.get('hands', False)
+
+        if self.debug:
+            print(f"Processing frame for client: size={size}, mirror={mirror}, hands={track_hands}")
 
         # Resize frame
         resized_frame = self.get_resized_frame(frame, size)

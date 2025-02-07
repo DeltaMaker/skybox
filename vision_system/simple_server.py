@@ -23,17 +23,19 @@ from aiohttp import web
 import logging
 
 class SimpleWebsocketServer:
-    def __init__(self, host='0.0.0.0', port=7160):
+    def __init__(self, host='0.0.0.0', port=7160, debug=False):
         """Initialize the WebSocket server.
         
         Args:
             host (str): Host address to bind to
             port (int): Port number to listen on
+            debug (bool): Enable debug output
         """
         self.host = host
         self.port = port
         self.clients = {}
         self.running = False
+        self.debug = debug
 
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
@@ -108,6 +110,8 @@ class SimpleWebsocketServer:
                 try:
                     message_data = await self.get_broadcast_data()
                     if message_data:
+                        if self.debug:
+                            print(f"Broadcasting to {len(self.clients)} clients")
                         await self.broadcast_to_clients(message_data)
                 except Exception as e:
                     logging.error(f"Error in broadcast loop: {e}")
