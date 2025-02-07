@@ -9,6 +9,7 @@ import io
 from threading import Condition
 import cv2
 import numpy as np
+import argparse
 
 try:
     from picamera2 import Picamera2
@@ -174,4 +175,42 @@ class Picamera2Server(CameraServer):
             try:
                 self.picam2.close()
             except Exception as e:
-                logging.error(f"Error closing camera: {e}") 
+                logging.error(f"Error closing camera: {e}")
+
+def main():
+    """Run the Picamera2 server with command line configuration."""
+    parser = argparse.ArgumentParser(description="Picamera2 Vision System Server")
+    parser.add_argument("--host", type=str, default="0.0.0.0",
+                      help="Host address to bind to (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=7160,
+                      help="Port number to listen on (default: 7160)")
+    parser.add_argument("--debug", action="store_true",
+                      help="Enable debug output")
+    
+    args = parser.parse_args()
+
+    # Configure logging
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+
+    try:
+        logging.info(f"Starting Picamera2 server on {args.host}:{args.port}")
+        server = Picamera2Server(
+            host=args.host,
+            port=args.port,
+            debug=args.debug
+        )
+        server.run()
+    except KeyboardInterrupt:
+        logging.info("\nShutting down server...")
+    except Exception as e:
+        logging.error(f"Server error: {e}")
+        raise
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    main() 
