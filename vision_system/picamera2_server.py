@@ -115,8 +115,9 @@ class Picamera2Server(CameraServer):
             # Clean up any existing camera instance
             if self.picam2:
                 if self.debug:
-                    print(f"Cleaning up existing camera instance: {self.picam2}")
+                    print("Cleaning up existing camera instance")
                 try:
+                    self.picam2.stop_recording()
                     self.picam2.close()
                 except Exception as e:
                     if self.debug:
@@ -124,52 +125,30 @@ class Picamera2Server(CameraServer):
                 self.picam2 = None
             
             # Create new camera instance
-            if self.debug:
-                print("Creating new Picamera2 instance...")
             self.picam2 = Picamera2()
             
             # Configure and start recording
-            if self.debug:
-                print(f"Configuring camera with size {self.base_size}")
-                print(f"Camera state before config: {self.picam2.camera_properties if self.picam2 else 'No camera'}")
-            
-            # Ensure we have a valid base_size
-            if not self.base_size:
-                raise RuntimeError("Camera base_size not set")
-            
             video_config = self.picam2.create_video_configuration(
                 main={"size": self.base_size, "format": "RGB888"},
-                buffer_count=4,
-                controls={
-                    "FrameDurationLimits": (33333, 33333),  # ~30fps
-                }
+                buffer_count=4
             )
             
-            if self.debug:
-                print(f"Video config created: {video_config}")
-            
             self.picam2.configure(video_config)
-            if self.debug:
-                print("Camera configured")
-            
+            self.picam2.start()
             self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
+            
             if self.debug:
-                print("Recording started")
+                print(f"Camera configured and started with resolution {self.base_size}")
                 
         except Exception as e:
             logging.error(f"Failed to setup camera: {e}")
             if self.debug:
                 print(f"Camera setup error: {e}")
-                print(f"Camera state: {self.picam2.camera_properties if self.picam2 else 'No camera'}")
-                print(f"Current base_size: {self.base_size}")
             if self.picam2:
                 try:
                     self.picam2.close()
-                    if self.debug:
-                        print("Camera closed after error")
                 except:
-                    if self.debug:
-                        print("Failed to close camera after error")
+                    pass
                 self.picam2 = None
             raise
 
