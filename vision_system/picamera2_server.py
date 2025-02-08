@@ -179,6 +179,21 @@ class Picamera2Server(CameraServer):
             except Exception as e:
                 logging.error(f"Error closing camera: {e}")
 
+    def get_status_info(self):
+        """Provide camera-specific status information."""
+        camera_info = self.picam2.camera_properties if self.picam2 else {}
+        return {
+            'camera_type': self.__class__.__name__,
+            'camera_name': camera_info.get('Model', 'Unknown'),
+            'camera_id': camera_info.get('Location', 'Unknown'),
+            'base_resolution': self.base_size,
+            'available_modes': self._get_camera_modes(),
+            'fps_stats': {
+                'target': max(client.get('fps', 1) for client in self.clients.values()) if self.clients else 0,
+                'frame_count': self.frame_count
+            }
+        }
+
 def main():
     """Run the Picamera2 server with command line configuration."""
     parser = argparse.ArgumentParser(description="Picamera2 Vision System Server")
