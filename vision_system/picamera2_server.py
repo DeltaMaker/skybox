@@ -51,17 +51,21 @@ class Picamera2Server(CameraServer):
             for mode in modes:
                 print(f"  {mode['resolution'][0]}x{mode['resolution'][1]} @ {mode['fps']:.2f}fps ({mode['format']})")
         
+        # Sort modes by resolution (width * height)
+        sorted_modes = sorted(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
+        
         # Find first mode >= 1200x800 or largest available
-        larger_modes = [m for m in modes if m['resolution'][0] >= 1200 and m['resolution'][1] >= 800]
-        if larger_modes:
-            best_mode = min(larger_modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-            self.base_size = best_mode['resolution']
-            if self.debug:
-                print(f"\nSelected default mode: {self.base_size[0]}x{self.base_size[1]}")
-                print(f"  Format: {best_mode['format']}")
-                print(f"  FPS: {best_mode['fps']:.2f}")
+        for mode in sorted_modes:
+            if mode['resolution'][0] >= 1200 and mode['resolution'][1] >= 800:
+                self.base_size = mode['resolution']
+                if self.debug:
+                    print(f"\nSelected mode >= 1200x800: {self.base_size[0]}x{self.base_size[1]}")
+                    print(f"  Format: {mode['format']}")
+                    print(f"  FPS: {mode['fps']:.2f}")
+                break
         else:
-            largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
+            # If no mode found, use largest available
+            largest_mode = sorted_modes[-1]
             self.base_size = largest_mode['resolution']
             if self.debug:
                 print(f"\nNo mode >= 1200x800, using largest: {self.base_size[0]}x{self.base_size[1]}")
@@ -159,6 +163,10 @@ class Picamera2Server(CameraServer):
                 print(f"Configuring camera with size {self.base_size}")
                 print(f"Camera state before config: {self.picam2.camera_properties if self.picam2 else 'No camera'}")
             
+            # Ensure we have a valid base_size
+            if not self.base_size:
+                raise RuntimeError("Camera base_size not set")
+            
             video_config = self.picam2.create_video_configuration(
                 main={"size": self.base_size, "format": "RGB888"},
                 buffer_count=4,
@@ -183,6 +191,7 @@ class Picamera2Server(CameraServer):
             if self.debug:
                 print(f"Camera setup error: {e}")
                 print(f"Camera state: {self.picam2.camera_properties if self.picam2 else 'No camera'}")
+                print(f"Current base_size: {self.base_size}")
             if self.picam2:
                 try:
                     self.picam2.close()
