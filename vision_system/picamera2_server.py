@@ -51,21 +51,19 @@ class Picamera2Server(CameraServer):
             for mode in modes:
                 print(f"  {mode['resolution'][0]}x{mode['resolution'][1]} @ {mode['fps']:.2f}fps ({mode['format']})")
         
-        # Sort modes by resolution (width * height)
-        sorted_modes = sorted(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-        
         # Find first mode >= 1200x800 or largest available
-        for mode in sorted_modes:
-            if mode['resolution'][0] >= 1200 and mode['resolution'][1] >= 800:
-                self.base_size = mode['resolution']
-                if self.debug:
-                    print(f"\nSelected mode >= 1200x800: {self.base_size[0]}x{self.base_size[1]}")
-                    print(f"  Format: {mode['format']}")
-                    print(f"  FPS: {mode['fps']:.2f}")
-                break
+        qualifying_modes = [m for m in modes if m['resolution'][0] >= 1200 and m['resolution'][1] >= 800]
+        if qualifying_modes:
+            # Get the smallest qualifying mode
+            best_mode = min(qualifying_modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
+            self.base_size = best_mode['resolution']
+            if self.debug:
+                print(f"\nSelected mode >= 1200x800: {self.base_size[0]}x{self.base_size[1]}")
+                print(f"  Format: {best_mode['format']}")
+                print(f"  FPS: {best_mode['fps']:.2f}")
         else:
             # If no mode found, use largest available
-            largest_mode = sorted_modes[-1]
+            largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
             self.base_size = largest_mode['resolution']
             if self.debug:
                 print(f"\nNo mode >= 1200x800, using largest: {self.base_size[0]}x{self.base_size[1]}")
