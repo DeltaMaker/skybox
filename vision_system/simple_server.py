@@ -181,17 +181,24 @@ class SimpleWebsocketServer:
         pass
 
     def status_message(self):
-        """Return empty list for base class status message."""
-        return []
+        """Return status information about connected clients."""
+        if self.debug:
+            print(f"status_message called, clients: {self.clients}")
+        return [{'config': client_info} for client_info in self.clients.values()]
 
     async def http_handler(self, request):
         """Handle HTTP requests to get the current status."""
+        if self.debug:
+            print("http_handler: Processing /status request")
         clients_status = self.status_message()
-        return web.json_response({
+        response = {
             'status': 'running' if self.running else 'stopped',
             'server_info': self.get_status_info(),
             'clients': clients_status or []
-        })
+        }
+        if self.debug:
+            print(f"http_handler: Sending response: {response}")
+        return web.json_response(response)
 
     def get_status_info(self):
         """Template method for server-specific status information."""

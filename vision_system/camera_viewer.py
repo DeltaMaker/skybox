@@ -143,7 +143,8 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
         
         # Configure subscription
         config = {
-            "size": [width, height],
+            #"size": [width, height],
+            "width": width,
             "fps": fps,
             "mirror": mirror,
             "hands": track_hands
@@ -176,7 +177,7 @@ def main():
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
     parser.add_argument("--ws_uri", type=str, default="ws://localhost:7160/websocket")
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
-    parser.add_argument("--height", type=int, default=480, help="Frame height (default: 480)")
+    parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
     parser.add_argument("--hands", action="store_true", help="Track hands if set")

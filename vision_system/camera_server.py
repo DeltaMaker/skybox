@@ -101,8 +101,17 @@ class CameraServer(SimpleWebsocketServer):
 
     def extract_client_info(self, config):
         """Extract custom frame size, FPS, and mirror flag from client subscription."""
+        # Calculate height to preserve aspect ratio from base_size
+        aspect_ratio = self.base_size[1] / self.base_size[0] if self.base_size else 0.75
+        if 'width' in config:
+            width = config['width']
+        elif 'size' in config:
+            width = config['size'][0]
+        else:
+            width = 640
+        size = (width, int(width * aspect_ratio))
         client_info = {
-            'size': tuple(config.get('size', (640, 480))),
+            'size': size,
             'fps': config.get('fps', 15),
             'mirror': config.get('mirror', False),
             'hands': config.get('hands', False)
