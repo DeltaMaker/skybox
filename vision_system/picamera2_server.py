@@ -42,6 +42,8 @@ class Picamera2Server(CameraServer):
         self.base_size = (1296, 972)  # Default size
         
         # Then initialize parent class
+        if debug:
+            print("Initializing Picamera2Server...")
         super().__init__(host, port, debug)
         
         # Try to initialize camera, but don't fail if busy
@@ -105,16 +107,25 @@ class Picamera2Server(CameraServer):
         try:
             # Clean up any existing camera instance
             if self.picam2:
+                if self.debug:
+                    print(f"Cleaning up existing camera instance: {self.picam2}")
                 try:
                     self.picam2.close()
-                except:
-                    pass
+                except Exception as e:
+                    if self.debug:
+                        print(f"Error during camera cleanup: {e}")
                 self.picam2 = None
             
             # Create new camera instance
+            if self.debug:
+                print("Creating new Picamera2 instance...")
             self.picam2 = Picamera2()
             
             # Configure and start recording
+            if self.debug:
+                print(f"Configuring camera with size {self.base_size}")
+                print(f"Camera state before config: {self.picam2.camera_properties if self.picam2 else 'No camera'}")
+            
             video_config = self.picam2.create_video_configuration(
                 main={"size": self.base_size, "format": "RGB888"},
                 buffer_count=4,
@@ -122,19 +133,31 @@ class Picamera2Server(CameraServer):
                     "FrameDurationLimits": (33333, 33333),  # ~30fps
                 }
             )
-            self.picam2.configure(video_config)
-            self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
             
             if self.debug:
-                print("Camera setup successful")
+                print(f"Video config created: {video_config}")
+            
+            self.picam2.configure(video_config)
+            if self.debug:
+                print("Camera configured")
+            
+            self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
+            if self.debug:
+                print("Recording started")
                 
         except Exception as e:
             logging.error(f"Failed to setup camera: {e}")
+            if self.debug:
+                print(f"Camera setup error: {e}")
+                print(f"Camera state: {self.picam2.camera_properties if self.picam2 else 'No camera'}")
             if self.picam2:
                 try:
                     self.picam2.close()
+                    if self.debug:
+                        print("Camera closed after error")
                 except:
-                    pass
+                    if self.debug:
+                        print("Failed to close camera after error")
                 self.picam2 = None
             raise
 
@@ -151,14 +174,24 @@ class Picamera2Server(CameraServer):
     def _cleanup_camera(self):
         """Ensure proper cleanup of camera resources."""
         if self.picam2:
+            if self.debug:
+                print("Cleaning up camera resources...")
             try:
                 self.picam2.stop_recording()
+                if self.debug:
+                    print("Recording stopped")
             except Exception as e:
                 logging.error(f"Error stopping recording: {e}")
+                if self.debug:
+                    print(f"Error stopping recording: {e}")
             try:
                 self.picam2.close()
+                if self.debug:
+                    print("Camera closed")
             except Exception as e:
                 logging.error(f"Error closing camera: {e}")
+                if self.debug:
+                    print(f"Error closing camera: {e}")
             self.picam2 = None
 
     def get_status_info(self):
