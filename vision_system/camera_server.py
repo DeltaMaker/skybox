@@ -17,10 +17,10 @@ from simple_server import SimpleWebsocketServer
 
 
 class CameraServer(SimpleWebsocketServer):
-    def __init__(self, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, base_size=None, debug=False):
         """Initialize the base camera server."""
         super().__init__(host, port, debug)
-        self.base_size = None  # Will be set during camera setup to actual capture resolution
+        self.base_size = base_size  # Will be set during camera setup to actual capture resolution
         self.marker_tracker = MarkerTracker()
         self.hand_tracker = HandTracker()
         self.frame_count = 0

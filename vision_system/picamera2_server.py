@@ -47,19 +47,20 @@ class Picamera2Server(CameraServer):
             raise RuntimeError("No camera modes available")
             
         # Find first mode >= min_size
+        base_size = min_size
         qualifying_modes = [m for m in modes if m['resolution'][0] >= min_size[0] and m['resolution'][1] >= min_size[1]]
         if qualifying_modes:
             best_mode = min(qualifying_modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-            self.base_size = best_mode['resolution']
+            base_size = best_mode['resolution']
             if self.debug:
-                print(f"\nSelected mode: {self.base_size[0]}x{self.base_size[1]} @ {best_mode['fps']:.2f}fps")
+                print(f"\nSelected mode: {base_size[0]}x{base_size[1]} @ {best_mode['fps']:.2f}fps")
         else:
             largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-            self.base_size = largest_mode['resolution']
+            base_size = largest_mode['resolution']
             if self.debug:
-                print(f"\nUsing largest mode: {self.base_size[0]}x{self.base_size[1]} @ {largest_mode['fps']:.2f}fps")
+                print(f"\nUsing largest mode: {base_size[0]}x{base_size[1]} @ {largest_mode['fps']:.2f}fps")
         
-        super().__init__(host, port, debug=debug)
+        super().__init__(host, port, base_size, debug=debug)
         
         # Try to initialize camera, but don't fail if busy
         try:
