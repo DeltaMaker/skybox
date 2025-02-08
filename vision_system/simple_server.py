@@ -21,6 +21,7 @@ import asyncio
 import json
 from aiohttp import web
 import logging
+import socket
 
 class SimpleWebsocketServer:
     def __init__(self, host='0.0.0.0', port=7160, debug=False):
@@ -37,6 +38,18 @@ class SimpleWebsocketServer:
         self.running = False
         self.debug = debug
 
+    def get_host_ip(self):
+            """Attempt to determine the IP address of the machine."""
+            try:
+                # This creates a dummy socket to connect to 8.8.8.8, and then get the socket's own address
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                s.close()
+                return ip
+            except Exception:
+                return "localhost"
+    
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
         app = web.Application()
@@ -49,8 +62,9 @@ class SimpleWebsocketServer:
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
 
-        print(f"Server started on ws://{self.host}:{self.port} (WebSocket and HTTP)")
-        
+        host_ip = self.get_host_ip()
+        print(f"Server started on ws://{host_ip}:{self.port} (WebSocket and HTTP)")
+        print(f"Server status at http://{host_ip}:{self.port}/status")
         # Start the frame sending task
         asyncio.create_task(self.send_broadcast_loop())
 
