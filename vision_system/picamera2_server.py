@@ -39,6 +39,7 @@ class Picamera2Server(CameraServer):
         self.picam2 = None
         self.camera_modes = None
         self.output = StreamingOutput()
+        self.base_size = (1296, 972)  # Default size
         
         # Then initialize parent class
         super().__init__(host, port, debug)
@@ -102,14 +103,20 @@ class Picamera2Server(CameraServer):
     def _setup_camera(self):
         """Configure camera."""
         try:
-            if not self.picam2:
-                self.picam2 = Picamera2()
+            # Clean up any existing camera instance
+            if self.picam2:
+                try:
+                    self.picam2.close()
+                except:
+                    pass
+                self.picam2 = None
             
-            # Get available modes
-            self.camera_modes = self._get_camera_modes()
+            # Create new camera instance
+            self.picam2 = Picamera2()
             
+            # Configure and start recording
             video_config = self.picam2.create_video_configuration(
-                main={"size": (1296, 972), "format": "RGB888"},
+                main={"size": self.base_size, "format": "RGB888"},
                 buffer_count=4,
                 controls={
                     "FrameDurationLimits": (33333, 33333),  # ~30fps
@@ -117,13 +124,18 @@ class Picamera2Server(CameraServer):
             )
             self.picam2.configure(video_config)
             self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
-            self.base_size = (1296, 972)
             
             if self.debug:
                 print("Camera setup successful")
                 
         except Exception as e:
             logging.error(f"Failed to setup camera: {e}")
+            if self.picam2:
+                try:
+                    self.picam2.close()
+                except:
+                    pass
+                self.picam2 = None
             raise
 
     def _capture_frame(self):
@@ -137,6 +149,7 @@ class Picamera2Server(CameraServer):
         return None
 
     def _cleanup_camera(self):
+        """Ensure proper cleanup of camera resources."""
         if self.picam2:
             try:
                 self.picam2.stop_recording()
@@ -146,6 +159,7 @@ class Picamera2Server(CameraServer):
                 self.picam2.close()
             except Exception as e:
                 logging.error(f"Error closing camera: {e}")
+            self.picam2 = None
 
     def get_status_info(self):
         """Provide camera-specific status information."""
