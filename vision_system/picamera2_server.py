@@ -38,6 +38,18 @@ class Picamera2Server(CameraServer):
         self.picam2 = None
         self.camera_modes = None
         self.output = StreamingOutput()
+        
+        # Try to initialize camera, but don't fail if busy
+        try:
+            self.picam2 = Picamera2()
+            if self.debug:
+                print("Camera initialized successfully")
+        except Exception as e:
+            logging.warning(f"Camera initialization warning: {e}")
+            if self.debug:
+                print(f"Warning: {e}")
+            # Continue initialization, will retry in _setup_camera
+
         super().__init__(host, port, debug)
 
     def _get_camera_modes(self):
@@ -85,78 +97,32 @@ class Picamera2Server(CameraServer):
                 print(f"\nError getting camera modes: {e}")
             return []
 
-    def _configure_camera(self, size=None, is_fallback=False):
-        """Configure camera with given size or fallback configuration."""
+    def _setup_camera(self):
+        """Configure camera."""
         try:
-            if self.debug:
-                print(f"\n{'Fallback' if is_fallback else 'Initial'} configuration:")
-                print("-" * 40)
-                if size:
-                    print(f"Configuring camera with size {size}")
+            if not self.picam2:
+                self.picam2 = Picamera2()
             
-            if size:
-                video_config = self.picam2.create_video_configuration(
-                    main={"size": (1296, 972), "format": "RGB888"},  # Fixed resolution
-                    buffer_count=4,
-                    controls={
-                        "FrameDurationLimits": (33333, 33333),  # ~30fps
-                    }
-                )
-            else:
-                video_config = self.picam2.create_video_configuration(
-                    main={"size": (1296, 972), "format": "RGB888"}  # Fixed resolution for fallback too
-                )
+            # Get available modes
+            self.camera_modes = self._get_camera_modes()
             
+            video_config = self.picam2.create_video_configuration(
+                main={"size": (1296, 972), "format": "RGB888"},
+                buffer_count=4,
+                controls={
+                    "FrameDurationLimits": (33333, 33333),  # ~30fps
+                }
+            )
             self.picam2.configure(video_config)
             self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
-            
-            self.base_size = (1296, 972)  # Fixed base size
+            self.base_size = (1296, 972)
             
             if self.debug:
-                print(f"Camera configured successfully at {self.base_size}")
-                print("-" * 40)
-            
-            return True
-            
+                print("Camera setup successful")
+                
         except Exception as e:
-            if not is_fallback:  # Only log warning if this isn't already the fallback attempt
-                logging.warning(f"Failed to configure camera with {'initial' if size else 'fallback'} settings: {e}")
-            return False
-
-    def _setup_camera(self):
-        if not self.picam2:
-            self.picam2 = Picamera2()
-        
-        # Get available modes
-        self.camera_modes = self._get_camera_modes()
-        
-        # Choose highest resolution mode with fps >= 30
-        chosen_mode = None
-        for mode in self.camera_modes:
-            if mode['fps'] >= 30:
-                if (not chosen_mode or 
-                    mode['resolution'][0] * mode['resolution'][1] > 
-                    chosen_mode['resolution'][0] * chosen_mode['resolution'][1]):
-                    chosen_mode = mode
-
-        # Fallback to first mode if no suitable mode found
-        if not chosen_mode and self.camera_modes:
-            chosen_mode = self.camera_modes[0]
-        
-        if self.debug:
-            print("\nCamera configuration:")
-            print("-" * 40)
-            if chosen_mode:
-                print(f"Selected mode: {chosen_mode['resolution'][0]}x{chosen_mode['resolution'][1]} @ {chosen_mode['fps']:.2f} fps")
-            else:
-                print("Using default fallback mode")
-        
-        initial_size = chosen_mode['resolution'] if chosen_mode else (1920, 1080)
-        
-        # Try initial configuration, fall back if it fails
-        if not self._configure_camera(initial_size):
-            if not self._configure_camera(is_fallback=True):
-                raise RuntimeError("Failed to configure camera with both initial and fallback settings")
+            logging.error(f"Failed to setup camera: {e}")
+            raise
 
     def _capture_frame(self):
         if not self.picam2:
@@ -221,6 +187,14 @@ def main():
             debug=args.debug
         )
         server.run()
+    except RuntimeError as e:
+        if "busy" in str(e).lower():
+            logging.error("Camera is in use by another process. Please ensure no other camera applications are running.")
+            if args.debug:
+                logging.error("Try: 'sudo lsof /dev/video*' to see what's using the camera")
+        else:
+            logging.error(f"Runtime error: {e}")
+        sys.exit(1)
     except KeyboardInterrupt:
         logging.info("\nShutting down server...")
     except Exception as e:
