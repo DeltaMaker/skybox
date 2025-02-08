@@ -34,7 +34,7 @@ class StreamingOutput(io.BufferedIOBase):
             self.condition.notify_all()
 
 class Picamera2Server(CameraServer):
-    def __init__(self, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, min_size=(1400, 900), debug=False):
         # Initialize our attributes first
         self.picam2 = None
         self.camera_modes = None
@@ -46,29 +46,18 @@ class Picamera2Server(CameraServer):
         if not modes:
             raise RuntimeError("No camera modes available")
             
-        if self.debug:
-            print("\nAvailable camera modes:")
-            for mode in modes:
-                print(f"  {mode['resolution'][0]}x{mode['resolution'][1]} @ {mode['fps']:.2f}fps ({mode['format']})")
-        
-        # Find first mode >= 1200x800 or largest available
-        qualifying_modes = [m for m in modes if m['resolution'][0] >= 1200 and m['resolution'][1] >= 800]
+        # Find first mode >= min_size
+        qualifying_modes = [m for m in modes if m['resolution'][0] >= min_size[0] and m['resolution'][1] >= min_size[1]]
         if qualifying_modes:
-            # Get the smallest qualifying mode
             best_mode = min(qualifying_modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
             self.base_size = best_mode['resolution']
             if self.debug:
-                print(f"\nSelected mode >= 1200x800: {self.base_size[0]}x{self.base_size[1]}")
-                print(f"  Format: {best_mode['format']}")
-                print(f"  FPS: {best_mode['fps']:.2f}")
+                print(f"\nSelected mode: {self.base_size[0]}x{self.base_size[1]} @ {best_mode['fps']:.2f}fps")
         else:
-            # If no mode found, use largest available
             largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
             self.base_size = largest_mode['resolution']
             if self.debug:
-                print(f"\nNo mode >= 1200x800, using largest: {self.base_size[0]}x{self.base_size[1]}")
-                print(f"  Format: {largest_mode['format']}")
-                print(f"  FPS: {largest_mode['fps']:.2f}")
+                print(f"\nUsing largest mode: {self.base_size[0]}x{self.base_size[1]} @ {largest_mode['fps']:.2f}fps")
         
         super().__init__(host, port, debug=debug)
         
@@ -86,32 +75,16 @@ class Picamera2Server(CameraServer):
     def _get_camera_modes(self):
         """Query available camera modes from Picamera2."""
         if not self.picam2:
-            if self.debug:
-                print("\nNo camera instance, creating new one for mode query")
             self.picam2 = Picamera2()
         
         if self.debug:
-            print("\nQuerying camera capabilities:")
-            print("-" * 40)
-            camera_info = self.picam2.camera_properties
-            print(f"Camera: {camera_info.get('Model', 'Unknown')} [{camera_info.get('PixelArraySize', ['?', '?'])[0]}x{camera_info.get('PixelArraySize', ['?', '?'])[1]}]")
-            print(f"Location: {camera_info.get('Location', 'Unknown')}")
-            
-            # Get raw camera modes
+            print("\nAvailable camera modes:")
             raw_modes = self.picam2.sensor_modes
-            if raw_modes:
-                print("\nAvailable Modes:")
-                for i, mode in enumerate(raw_modes):
-                    size = mode.get('size', (0, 0))
-                    format = mode.get('format', 'Unknown')
-                    fps = mode.get('fps', 0)
-                    crop = mode.get('crop_limits', (0, 0, 0, 0))
-                    print(f"Mode {i}: {format} : {size[0]}x{size[1]} [{fps:.2f} fps - ({crop[0]}, {crop[1]})/{crop[2]}x{crop[3]} crop]")
-            
-            print("\nRaw camera properties:")
-            for key, value in camera_info.items():
-                print(f"{key}: {value}")
-            print("-" * 40)
+            for mode in raw_modes:
+                size = mode.get('size', (0, 0))
+                format = mode.get('format', 'Unknown')
+                fps = mode.get('fps', 0)
+                print(f"  {size[0]}x{size[1]} @ {fps:.2f}fps ({format})")
         
         # Return structured mode information
         modes = []
@@ -121,13 +94,11 @@ class Picamera2Server(CameraServer):
                 size = mode.get('size', (0, 0))
                 format = mode.get('format', 'Unknown')
                 fps = mode.get('fps', 0)
-                crop = mode.get('crop_limits', (0, 0, 0, 0))
                 if size and fps:
                     modes.append({
                         'resolution': size,
                         'format': format,
-                        'fps': fps,
-                        'crop': crop
+                        'fps': fps
                     })
             return modes
             
@@ -256,22 +227,32 @@ def main():
                       help="Host address to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=7160,
                       help="Port number to listen on (default: 7160)")
+    parser.add_argument("--min-size", type=str, default="1400x900",
+                      help="Minimum camera resolution in WxH format (default: 1400x900)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
     
     args = parser.parse_args()
 
     try:
+        # Parse min_size
+        w, h = map(int, args.min_size.split('x'))
+        min_size = (w, h)
+        
         logging.info(f"Starting Picamera2 server on {args.host}:{args.port}")
         server = Picamera2Server(
             host=args.host,
             port=args.port,
+            min_size=min_size,
             debug=args.debug
         )
         server.run()
+    except ValueError as e:
+        logging.error(f"Invalid min-size format. Use WxH format (e.g., 1400x900)")
+        sys.exit(1)
     except RuntimeError as e:
         if "busy" in str(e).lower():
-            logging.error("Camera is in use by another process. Please ensure no other camera applications are running.")
+            logging.error("Camera is in use by another process.")
             if args.debug:
                 logging.error("Try: 'sudo lsof /dev/video*' to see what's using the camera")
         else:
