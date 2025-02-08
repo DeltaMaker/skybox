@@ -60,6 +60,8 @@ class Picamera2Server(CameraServer):
     def _get_camera_modes(self):
         """Query available camera modes from Picamera2."""
         if not self.picam2:
+            if self.debug:
+                print("\nNo camera instance, creating new one for mode query")
             self.picam2 = Picamera2()
         
         if self.debug:
