@@ -35,6 +35,9 @@ class StreamingOutput(io.BufferedIOBase):
 
 class Picamera2Server(CameraServer):
     def __init__(self, host='0.0.0.0', port=7160, debug=False):
+        # Initialize parent class first to set debug attribute
+        super().__init__(host, port, debug)
+        
         self.picam2 = None
         self.camera_modes = None
         self.output = StreamingOutput()
@@ -49,8 +52,6 @@ class Picamera2Server(CameraServer):
             if self.debug:
                 print(f"Warning: {e}")
             # Continue initialization, will retry in _setup_camera
-
-        super().__init__(host, port, debug)
 
     def _get_camera_modes(self):
         """Query available camera modes from Picamera2."""
