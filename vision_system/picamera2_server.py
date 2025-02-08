@@ -39,11 +39,38 @@ class Picamera2Server(CameraServer):
         self.picam2 = None
         self.camera_modes = None
         self.output = StreamingOutput()
-        self.base_size = (1296, 972)  # Default size
+        self.base_size = None
         
         # Then initialize parent class
         if debug:
             print("Initializing Picamera2Server...")
+        
+        # Get camera modes and set base_size
+        modes = self._get_camera_modes()
+        if not modes:
+            raise RuntimeError("No camera modes available")
+            
+        # Find first mode >= 1200x800
+        mode_found = False
+        for mode in modes:
+            size = mode['resolution']
+            if size[0] >= 1200 and size[1] >= 800:
+                self.base_size = size
+                mode_found = True
+                if debug:
+                    print(f"Selected camera mode: {size[0]}x{size[1]}")
+                break
+        
+        # If no suitable mode found, use the largest available
+        if not mode_found:
+            largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
+            self.base_size = largest_mode['resolution']
+            if debug:
+                print(f"No mode >= 1200x800 found. Using largest available: {self.base_size[0]}x{self.base_size[1]}")
+        
+        if not self.base_size:
+            raise RuntimeError("Failed to set camera base size")
+            
         super().__init__(host, port, debug)
         
         # Try to initialize camera, but don't fail if busy
@@ -67,35 +94,42 @@ class Picamera2Server(CameraServer):
         if self.debug:
             print("\nQuerying camera capabilities:")
             print("-" * 40)
-            print(f"Camera Model: {self.picam2.camera_properties.get('Model', 'Unknown')}")
-        
-        camera_info = self.picam2.camera_properties
-        if self.debug:
+            camera_info = self.picam2.camera_properties
+            print(f"Camera: {camera_info.get('Model', 'Unknown')} [{camera_info.get('PixelArraySize', ['?', '?'])[0]}x{camera_info.get('PixelArraySize', ['?', '?'])[1]}]")
+            print(f"Location: {camera_info.get('Location', 'Unknown')}")
+            
+            # Get raw camera modes
+            raw_modes = self.picam2.sensor_modes
+            if raw_modes:
+                print("\nAvailable Modes:")
+                for i, mode in enumerate(raw_modes):
+                    size = mode.get('size', (0, 0))
+                    format = mode.get('format', 'Unknown')
+                    fps = mode.get('fps', 0)
+                    crop = mode.get('crop_limits', (0, 0, 0, 0))
+                    print(f"Mode {i}: {format} : {size[0]}x{size[1]} [{fps:.2f} fps - ({crop[0]}, {crop[1]})/{crop[2]}x{crop[3]} crop]")
+            
             print("\nRaw camera properties:")
             for key, value in camera_info.items():
                 print(f"{key}: {value}")
             print("-" * 40)
         
-        # Get available modes from camera properties
+        # Return structured mode information
         modes = []
         try:
-            for mode in camera_info.get('SensorModes', []):
-                size = mode.get('Size', [0, 0])
+            raw_modes = self.picam2.sensor_modes
+            for mode in raw_modes:
+                size = mode.get('size', (0, 0))
+                format = mode.get('format', 'Unknown')
                 fps = mode.get('fps', 0)
+                crop = mode.get('crop_limits', (0, 0, 0, 0))
                 if size and fps:
                     modes.append({
                         'resolution': size,
-                        'fps': fps
+                        'format': format,
+                        'fps': fps,
+                        'crop': crop
                     })
-            
-            if self.debug:
-                print("\nAvailable camera modes:")
-                print("-" * 40)
-                for i, mode in enumerate(modes, 1):
-                    res = mode['resolution']
-                    print(f"Mode {i}: {res[0]}x{res[1]} @ {mode['fps']:.2f} fps")
-                print("-" * 40)
-            
             return modes
             
         except Exception as e:
