@@ -46,6 +46,11 @@ class Picamera2Server(CameraServer):
         if not modes:
             raise RuntimeError("No camera modes available")
             
+        if self.debug:
+            print("\nAvailable camera modes:")
+            for mode in modes:
+                print(f"  {mode['resolution'][0]}x{mode['resolution'][1]} @ {mode['fps']:.2f}fps ({mode['format']})")
+            
         if base_size:
             # Validate requested base_size against available modes
             requested_size = base_size
@@ -55,7 +60,9 @@ class Picamera2Server(CameraServer):
                     self.base_size = requested_size
                     mode_found = True
                     if self.debug:
-                        print(f"Using requested camera mode: {requested_size[0]}x{requested_size[1]}")
+                        print(f"\nUsing requested camera mode: {requested_size[0]}x{requested_size[1]}")
+                        print(f"  Format: {mode['format']}")
+                        print(f"  FPS: {mode['fps']:.2f}")
                     break
             if not mode_found:
                 raise ValueError(f"Requested size {requested_size} not available. Available modes: {[m['resolution'] for m in modes]}")
@@ -68,7 +75,9 @@ class Picamera2Server(CameraServer):
                     self.base_size = size
                     mode_found = True
                     if self.debug:
-                        print(f"Selected camera mode: {size[0]}x{size[1]}")
+                        print(f"\nSelected camera mode: {size[0]}x{size[1]}")
+                        print(f"  Format: {mode['format']}")
+                        print(f"  FPS: {mode['fps']:.2f}")
                     break
             
             # If no suitable mode found, use the largest available
@@ -76,7 +85,10 @@ class Picamera2Server(CameraServer):
                 largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
                 self.base_size = largest_mode['resolution']
                 if self.debug:
-                    print(f"No mode >= 1200x800 found. Using largest available: {self.base_size[0]}x{self.base_size[1]}")
+                    print(f"\nNo mode >= 1200x800 found. Using largest available:")
+                    print(f"  Resolution: {self.base_size[0]}x{self.base_size[1]}")
+                    print(f"  Format: {largest_mode['format']}")
+                    print(f"  FPS: {largest_mode['fps']:.2f}")
         
         if not self.base_size:
             raise RuntimeError("Failed to set camera base size")
