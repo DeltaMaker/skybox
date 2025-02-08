@@ -35,12 +35,13 @@ class StreamingOutput(io.BufferedIOBase):
 
 class Picamera2Server(CameraServer):
     def __init__(self, host='0.0.0.0', port=7160, debug=False):
-        # Initialize parent class first to set debug attribute
-        super().__init__(host, port, debug)
-        
+        # Initialize our attributes first
         self.picam2 = None
         self.camera_modes = None
         self.output = StreamingOutput()
+        
+        # Then initialize parent class
+        super().__init__(host, port, debug)
         
         # Try to initialize camera, but don't fail if busy
         try:
