@@ -34,44 +34,55 @@ class StreamingOutput(io.BufferedIOBase):
             self.condition.notify_all()
 
 class Picamera2Server(CameraServer):
-    def __init__(self, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, base_size=None, debug=False):
         # Initialize our attributes first
         self.picam2 = None
         self.camera_modes = None
         self.output = StreamingOutput()
-        self.base_size = None
+        self.debug = debug  # Need this for debug output during initialization
         
-        # Then initialize parent class
-        if debug:
-            print("Initializing Picamera2Server...")
-        
-        # Get camera modes and set base_size
+        # Get camera modes and validate/set base_size
         modes = self._get_camera_modes()
         if not modes:
             raise RuntimeError("No camera modes available")
             
-        # Find first mode >= 1200x800
-        mode_found = False
-        for mode in modes:
-            size = mode['resolution']
-            if size[0] >= 1200 and size[1] >= 800:
-                self.base_size = size
-                mode_found = True
-                if debug:
-                    print(f"Selected camera mode: {size[0]}x{size[1]}")
-                break
-        
-        # If no suitable mode found, use the largest available
-        if not mode_found:
-            largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-            self.base_size = largest_mode['resolution']
-            if debug:
-                print(f"No mode >= 1200x800 found. Using largest available: {self.base_size[0]}x{self.base_size[1]}")
+        if base_size:
+            # Validate requested base_size against available modes
+            requested_size = base_size
+            mode_found = False
+            for mode in modes:
+                if mode['resolution'] == requested_size:
+                    self.base_size = requested_size
+                    mode_found = True
+                    if self.debug:
+                        print(f"Using requested camera mode: {requested_size[0]}x{requested_size[1]}")
+                    break
+            if not mode_found:
+                raise ValueError(f"Requested size {requested_size} not available. Available modes: {[m['resolution'] for m in modes]}")
+        else:
+            # Find first mode >= 1200x800
+            mode_found = False
+            for mode in modes:
+                size = mode['resolution']
+                if size[0] >= 1200 and size[1] >= 800:
+                    self.base_size = size
+                    mode_found = True
+                    if self.debug:
+                        print(f"Selected camera mode: {size[0]}x{size[1]}")
+                    break
+            
+            # If no suitable mode found, use the largest available
+            if not mode_found:
+                largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
+                self.base_size = largest_mode['resolution']
+                if self.debug:
+                    print(f"No mode >= 1200x800 found. Using largest available: {self.base_size[0]}x{self.base_size[1]}")
         
         if not self.base_size:
             raise RuntimeError("Failed to set camera base size")
             
-        super().__init__(host, port, debug)
+        # Now call parent init, but don't pass base_size since we've already set it
+        super().__init__(host, port, debug=debug)
         
         # Try to initialize camera, but don't fail if busy
         try:
@@ -252,26 +263,35 @@ def main():
                       help="Host address to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=7160,
                       help="Port number to listen on (default: 7160)")
+    parser.add_argument("--resolution", type=str,
+                      help="Camera resolution in WxH format (e.g., 1296x972)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
     
     args = parser.parse_args()
 
-    # Configure logging
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    # Parse resolution if provided
+    base_size = None
+    if args.resolution:
+        try:
+            w, h = map(int, args.resolution.split('x'))
+            base_size = (w, h)
+        except ValueError:
+            print(f"Invalid resolution format: {args.resolution}. Use WxH format (e.g., 1296x972)")
+            sys.exit(1)
 
     try:
         logging.info(f"Starting Picamera2 server on {args.host}:{args.port}")
         server = Picamera2Server(
             host=args.host,
             port=args.port,
+            base_size=base_size,
             debug=args.debug
         )
         server.run()
+    except ValueError as e:
+        logging.error(f"Invalid configuration: {e}")
+        sys.exit(1)
     except RuntimeError as e:
         if "busy" in str(e).lower():
             logging.error("Camera is in use by another process. Please ensure no other camera applications are running.")
