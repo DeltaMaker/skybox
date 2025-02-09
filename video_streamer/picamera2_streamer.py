@@ -48,12 +48,17 @@ class Picamera2Streamer:
         self.frame_rate = frame_rate
         self.picam2 = Picamera2()
         self.camera_modes = self.picam2.sensor_modes
+        
+        # Find valid modes
         valid_modes = [m for m in self.camera_modes 
                       if m['size'][0] >= size[0] and m['size'][1] >= size[1]]
         if not valid_modes:
             raise RuntimeError(f"No available camera modes larger than {size[0]}x{size[1]}")
-        self.base_size = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])["size"]
-        self.camera_format = self.base_size.get("unpacked_format", "XBGR8888")
+        
+        # Get best mode and its properties
+        best_mode = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])
+        self.base_size = best_mode["size"]
+        self.camera_format = best_mode.get("unpacked_format", "XBGR8888")
 
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
