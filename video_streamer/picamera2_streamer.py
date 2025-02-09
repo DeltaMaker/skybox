@@ -1,7 +1,8 @@
 """
 Picamera2 Vision System Server
 
-This module implements a camera streamer specifically for Raspberry Pi cameras using the Picamera2 library. It provides dynamic resolution adjustment based on client requirements while maintaining optimal performance.
+This module implements a camera streamer specifically for Raspberry Pi cameras using the Picamera2 library.
+Requires picamera2 to be installed and a compatible camera to be connected.
 
 Features:
 - Automatic camera mode selection based on client requirements
@@ -20,7 +21,7 @@ Key Components:
 Usage:
     streamer = Picamera2Streamer(
         host='0.0.0.0',           # Bind to all interfaces
-        port=7160,                # Server port
+        port=8080,                # Server port
         min_size=(1400, 900),     # Minimum resolution
         debug=False               # Debug output
     )
@@ -34,35 +35,38 @@ Version: 0.2
 import signal
 import socket
 from threading import Thread
-from picamera2 import Picamera2
-from picamera2.encoders import MJPEGEncoder
-from picamera2.outputs import FileOutput
+import sys
+
+try:
+    from picamera2 import Picamera2
+    from picamera2.encoders import MJPEGEncoder
+    from picamera2.outputs import FileOutput
+except ImportError:
+    print("\nError: Picamera2 is required but not installed.")
+    print("This module only works on Raspberry Pi with a compatible camera.")
+    print("Please install picamera2: pip install picamera2")
+    sys.exit(1)
 
 from streaming_module import StreamingOutput, StreamingHandler, StreamingServer
 
 
 class Picamera2Streamer:
-    def __init__(self, output_port=8000, min_size=(1280, 720), frame_rate=10):
+    def __init__(self, output_port=8080, min_size=(1280, 720), frame_rate=30):
         self.address = ('', output_port)
-        self.min_size = min_size
+        self.size = min_size
         self.frame_rate = frame_rate
-        self.picam2 = Picamera2()
-        self.camera_modes = self.picam2.sensor_modes
-        
-        # Find valid modes
-        valid_modes = [m for m in self.camera_modes 
-                      if m['size'][0] >= min_size[0] and m['size'][1] >= min_size[1]]
-        if not valid_modes:
-            raise RuntimeError(f"No available camera modes larger than {min_size[0]}x{min_size[1]}")
-        
-        # Get best mode and its properties
-        best_mode = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])
-        self.base_size = best_mode["size"]
-        self.camera_format = best_mode.get("unpacked_format", "XBGR8888")
-
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
         self.server = StreamingServer(self.address, StreamingHandler)
+
+        self.picam2 = Picamera2()
+        self.camera_modes = self.picam2.sensor_modes
+        valid_modes = [m for m in self.camera_modes 
+            if m['size'][0] >= min_size[0] and m['size'][1] >= min_size[1]]
+        if not valid_modes:
+            raise RuntimeError(f"No available camera modes larger than {min_size[0]}x{min_size[1]}")
+        self.base_size = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])["size"]
+        self.camera_format = self.base_size.get("unpacked_format", "XBGR8888")
 
     def get_host_ip(self):
         """Attempt to determine the IP address of the machine."""
@@ -97,11 +101,11 @@ class Picamera2Streamer:
 
 
 def main():
-    custom_port = 8000    # Example custom port
-    custom_min_size = (640, 480)  # HD resolution specified using the 'size' parameter
-    custom_fps = 30
-    #camera_streamer = Picamera2Streamer(output_port=custom_port, min_size=custom_min_size, frame_rate=custom_fps)
-    camera_streamer = Picamera2Streamer()
+    custom_port = 8080
+    custom_min_size = (640, 480)
+    custom_fps = 15
+    camera_streamer = Picamera2Streamer(output_port=custom_port, min_size=custom_min_size, frame_rate=custom_fps)
+
     camera_streamer.start()
     try:
         signal.pause()
