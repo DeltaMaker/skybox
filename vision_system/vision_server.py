@@ -96,54 +96,78 @@ class VisionServer(SimpleWebsocketServer):
         """Update and print FPS statistics."""
         self.frame_count += 1
         current_time = time.time()
+        
         if current_time - self.last_fps_print >= 1.0:
-            actual_fps = self.frame_count / (current_time - self.last_fps_print)
+            self.actual_fps = self.frame_count / (current_time - self.last_fps_print)
             fastest_fps = max(client.get('fps', 1) for client in self.clients.values())
-            print(f"Target FPS: {fastest_fps:.1f}, Actual FPS: {actual_fps:.1f}")
+            
+            if self.debug:
+                print(f"Target FPS: {fastest_fps:.1f}, Actual FPS: {self.actual_fps:.1f}")
+            
             self.frame_count = 0
             self.last_fps_print = current_time
 
     def extract_client_info(self, config):
         """Extract client configuration."""
-        # Calculate height to preserve aspect ratio from base_size
-        aspect_ratio = self.base_size[1] / self.base_size[0] if self.base_size else 0.75
-        if 'width' in config:
-            width = config['width']
-        elif 'size' in config:
-            width = config['size'][0]
-        else:
-            width = 640
-        
-        return {
-            'size': (width, int(width * aspect_ratio)),
+        client_info = {
             'fps': config.get('fps', 15),
             'mirror': config.get('mirror', False),
-            'hands': config.get('hands', False)
+            'send_frames': False,
+            'send_hands': False,
+            'send_markers': False
         }
+        
+        # Check if client wants frames (indicated by width or size)
+        if 'width' in config or 'size' in config:
+            width = config.get('width', config.get('size', [640])[0])
+            aspect_ratio = self.base_size[1] / self.base_size[0] if self.base_size else 0.75
+            client_info.update({
+                'size': (width, int(width * aspect_ratio)),
+                'send_frames': True
+            })
+        
+        # Check for vision data subscriptions
+        if config.get('hands', False):
+            client_info['send_hands'] = True
+            
+        if config.get('markers', False):
+            client_info['send_markers'] = True
+            
+        return client_info
 
     async def format_client_message(self, message_data, client_info):
         """Format the frame and data for a specific client."""
-        frame = message_data['frame']
-        size = client_info['size']
-        mirror = client_info['mirror']
-        track_hands = client_info.get('hands', False)
-
-        resized_frame = cv2.resize(frame, size)
-        if mirror:
-            resized_frame = cv2.flip(resized_frame, 1)
-
-        marker_data = self.marker_tracker.process_frame(resized_frame)
-        hand_data = self.hand_tracker.process_frame(resized_frame) if track_hands else []
-
-        _, encoded_frame = cv2.imencode('.jpg', resized_frame)
-        frame_bytes = encoded_frame.tobytes()
+        data = {"timestamp": message_data['timestamp']}
+        frame_bytes = None  # Initialize as None
+        
+        if client_info['send_frames']:  # Only process frames if client requested them
+            frame = message_data['frame']
+            resized_frame = cv2.resize(frame, client_info['size'])
+            if client_info['mirror']:
+                resized_frame = cv2.flip(resized_frame, 1)
+                
+            if client_info['send_markers']:
+                marker_data = self.marker_tracker.process_frame(resized_frame)
+                data["markers"] = marker_data
+                
+            if client_info['send_hands']:
+                hand_data = self.hand_tracker.process_frame(resized_frame)
+                data["hands"] = hand_data
+                
+            _, encoded_frame = cv2.imencode('.jpg', resized_frame)
+            frame_bytes = encoded_frame.tobytes()
+        else:
+            # Process original frame if only vision data is requested
+            if client_info['send_markers']:
+                marker_data = self.marker_tracker.process_frame(message_data['frame'])
+                data["markers"] = marker_data
+                
+            if client_info['send_hands']:
+                hand_data = self.hand_tracker.process_frame(message_data['frame'])
+                data["hands"] = hand_data
 
         return {
-            'data': {
-                "markers": marker_data,
-                "hands": hand_data,
-                "timestamp": message_data['timestamp']
-            },
+            'data': data,
             'frame_bytes': frame_bytes
         }
 
@@ -151,7 +175,8 @@ class VisionServer(SimpleWebsocketServer):
         """Send the formatted message to the client."""
         if not client_ws.closed:
             await client_ws.send_str(json.dumps(message['data']))
-            await client_ws.send_bytes(message['frame_bytes'])
+            if message['frame_bytes'] is not None:  # Only send frame bytes if they exist
+                await client_ws.send_bytes(message['frame_bytes'])
 
     def cleanup(self):
         """Clean up resources."""
@@ -161,13 +186,15 @@ class VisionServer(SimpleWebsocketServer):
     def get_status_info(self):
         """Get server status information."""
         status = super().get_status_info()
+        target_fps = max((client.get('fps', 1) for client in self.clients.values()), default=0)
         
         # Add vision-specific status info
         status.update({
             'snapshot_url': self.snapshot_url,
             'base_resolution': f"{self.base_size[0]}x{self.base_size[1]}",
             'clients': len(self.clients),
-            'fps': max((client.get('fps', 1) for client in self.clients.values()), default=0),
+            'target_fps': target_fps,
+            'actual_fps': round(getattr(self, 'actual_fps', 0), 1),
             'markers_enabled': True,
             'hands_enabled': True
         })
@@ -179,7 +206,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Vision Server for HTTP snapshot cameras")
-    parser.add_argument("--url", default="http://localhost:8080/snapshot", help="URL of the snapshot endpoint")
+    parser.add_argument("--url", default="http://192.168.1.248:8080/snapshot", help="URL of the snapshot endpoint")
     parser.add_argument("--auth", help="Basic auth in format username:password")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
