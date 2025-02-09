@@ -42,18 +42,18 @@ from streaming_module import StreamingOutput, StreamingHandler, StreamingServer
 
 
 class Picamera2Streamer:
-    def __init__(self, output_port=8000, size=(1280, 720), frame_rate=10):
+    def __init__(self, output_port=8000, min_size=(1280, 720), frame_rate=10):
         self.address = ('', output_port)
-        self.size = size
+        self.min_size = min_size
         self.frame_rate = frame_rate
         self.picam2 = Picamera2()
         self.camera_modes = self.picam2.sensor_modes
         
         # Find valid modes
         valid_modes = [m for m in self.camera_modes 
-                      if m['size'][0] >= size[0] and m['size'][1] >= size[1]]
+                      if m['size'][0] >= min_size[0] and m['size'][1] >= min_size[1]]
         if not valid_modes:
-            raise RuntimeError(f"No available camera modes larger than {size[0]}x{size[1]}")
+            raise RuntimeError(f"No available camera modes larger than {min_size[0]}x{min_size[1]}")
         
         # Get best mode and its properties
         best_mode = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])
@@ -78,7 +78,7 @@ class Picamera2Streamer:
 
     def start(self):
         video_config = self.picam2.create_video_configuration(
-            main={"size": self.base_size}, controls={'FrameRate': self.frame_rate})
+            main={"size": self.base_size, "format": self.camera_format}, controls={'FrameRate': self.frame_rate})
         self.picam2.configure(video_config)
         self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
         server_thread = Thread(target=self.server.serve_forever)
@@ -98,11 +98,12 @@ class Picamera2Streamer:
 
 def main():
     custom_port = 8000    # Example custom port
-    custom_size = (640, 480)  # HD resolution specified using the 'size' parameter
+    custom_min_size = (640, 480)  # HD resolution specified using the 'size' parameter
     custom_fps = 30
-    camera_streamer = Picamera2Streamer(output_port=custom_port, size=custom_size, frame_rate=custom_fps)
+    #camera_streamer = Picamera2Streamer(output_port=custom_port, min_size=custom_min_size, frame_rate=custom_fps)
+    camera_streamer = Picamera2Streamer()
+    camera_streamer.start()
     try:
-        camera_streamer.start()
         signal.pause()
     except KeyboardInterrupt:
         print("Stopping Picamera2 streamer...")
