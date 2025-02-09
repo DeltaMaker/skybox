@@ -1,27 +1,35 @@
 """
-MJPEG Streaming Server
+MJPEG Streaming Module
 
-This script implements a basic MJPEG streaming server capable of serving live video feeds over HTTP. It is designed to work with a variety of video capture sources by providing frames to the StreamingOutput class, which are then streamed to connected clients through HTTP. The server streams the video using the MJPEG format, allowing for real-time viewing in web browsers or video clients that support the MJPEG content type.
-
-Features:
-- Implements an MJPEG streaming server using standard Python libraries.
-- Utilizes threading to handle multiple simultaneous client connections without blocking the main video capture process.
-- Supports dynamic frame updates from a video capture source, streaming the latest frame to all connected clients.
+This module provides the core components for MJPEG streaming over HTTP, designed to be used by various camera implementations. It handles the streaming server infrastructure, allowing camera-specific implementations to focus on frame capture and processing.
 
 Components:
-- StreamingOutput: A class that holds the latest video frame to be streamed. It uses threading conditions to synchronize frame updates with streaming requests.
-- StreamingHandler: A subclass of BaseHTTPRequestHandler for handling HTTP requests. It streams the video frames as a multipart/x-mixed-replace response, suitable for real-time video streaming in web browsers.
-- StreamingServer: A class combining ThreadingMixIn with HTTPServer to serve video streams in a multi-threaded manner, allowing multiple clients to connect simultaneously.
+- StreamingOutput: Manages frame buffer with thread-safe access
+- StreamingHandler: HTTP request handler supporting both streaming and snapshot endpoints
+- StreamingServer: Multi-threaded HTTP server for handling multiple client connections
+
+Features:
+- Thread-safe frame buffer management
+- MJPEG streaming over HTTP
+- Single frame snapshot endpoint (/snapshot)
+- Support for multiple simultaneous clients
+- No-cache headers for real-time viewing
 
 Usage:
-To use this MJPEG streaming server, integrate it with a video capture source by periodically updating the frame in the StreamingOutput instance. Start the server, and clients can connect to the specified address and port to view the live video feed. The server runs indefinitely until manually stopped, gracefully handling shutdown requests to release resources properly.
+1. Create a StreamingOutput instance for frame buffer
+2. Configure StreamingHandler with the output
+3. Initialize StreamingServer with handler
+4. Start server to begin streaming
 
-Note:
-This script requires Python 3 and has been tested on Linux-based systems. Adaptations may be necessary for other environments or specific video capture requirements.
+Example:
+    output = StreamingOutput()
+    StreamingHandler.output = output
+    server = StreamingServer((host, port), StreamingHandler)
+    server.serve_forever()
 
 Author: Bob Houston
-Date: 2024-3-21
-Version: 0.1
+Date: 2024-03-21
+Version: 0.2
 """
 
 import io
@@ -47,6 +55,35 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
     output = None
 
     def do_GET(self):
+        if self.path == '/snapshot':
+            self.serve_snapshot()
+        else:
+            self.serve_stream()
+
+    def serve_snapshot(self):
+        """Serve a single frame as a JPEG image."""
+        try:
+            with StreamingHandler.output.condition:
+                if StreamingHandler.output.frame is None:
+                    self.send_error(404)
+                    return
+                frame = StreamingHandler.output.frame
+            
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Content-Length', len(frame))
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.end_headers()
+            self.wfile.write(frame)
+            
+        except Exception as e:
+            logging.warning('Snapshot client error %s: %s', self.client_address, str(e))
+            self.send_error(500)
+
+    def serve_stream(self):
+        """Serve MJPEG stream."""
         self.send_response(200)
         self.send_header('Age', 0)
         self.send_header('Cache-Control', 'no-cache, private')
