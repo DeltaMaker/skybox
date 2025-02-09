@@ -54,6 +54,10 @@ class StreamingOutput(io.BufferedIOBase):
 class StreamingHandler(server.BaseHTTPRequestHandler):
     output = None
 
+    def log_message(self, format, *args):
+        """Disable HTTP server logging."""
+        pass
+
     def do_GET(self):
         if self.path == '/snapshot':
             self.serve_snapshot()
@@ -101,8 +105,12 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(frame)
                 self.wfile.write(b'\r\n')
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            # Client disconnected, no need to log
+            pass
         except Exception as e:
-            logging.warning('Removed streaming client %s: %s', self.client_address, str(e))
+            # Log unexpected errors
+            logging.error(f'Streaming error: {str(e)}')
 
 class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
