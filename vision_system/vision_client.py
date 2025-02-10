@@ -33,7 +33,7 @@ import threading
 
 
 class VisionClient:
-    def __init__(self, debug=False, start_port=8000):
+    def __init__(self, debug=False, port=8000, retries=5):
         """Initialize the VisionClient."""
         self.debug = debug
         self.markers = []
@@ -43,13 +43,13 @@ class VisionClient:
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
         
-        self.server, self.port = StreamingServer.create(start_port,start_port+10)
+        self.server, self.port = StreamingServer.create(port, retries)
         
         # Start server in separate thread
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
-        print(f"\nStreaming processed frames at: http://localhost:{self.port}")
+        print(f"\nStreaming processed frames at: http://{self.server.get_host_ip()}:{self.port}")
 
     def draw_markers(self, frame, markers):
         """Draw detected markers on the frame."""
@@ -146,7 +146,7 @@ class VisionClient:
                 
                 # Write processed frame to streaming output
                 _, jpeg = cv2.imencode('.jpg', frame)
-                self.output.write(jpeg.tobytes())
+                self.output.update_frame(jpeg)
                 
                 # Check for quit key from keyboard
                 return cv2.waitKey(1) & 0xFF == ord('q')

@@ -83,17 +83,6 @@ class Picamera2Streamer:
         }
 
 
-    def get_host_ip(self):
-        """Attempt to determine the IP address of the machine."""
-        try:
-            # This creates a dummy socket to connect to 8.8.8.8, and then get the socket's own address
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return "localhost"
 
     def start(self):
         """Start the camera and server."""
@@ -108,7 +97,7 @@ class Picamera2Streamer:
         server_thread.start()
 
         # Display the streaming address
-        host_ip = self.get_host_ip()
+        host_ip = self.server.get_host_ip()
         print(f"Picamera2 streamer started. Stream at: http://{host_ip}:{self.address[1]}")
         print("Press Ctrl-C to stop.")
 

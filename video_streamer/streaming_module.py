@@ -39,6 +39,7 @@ from http import server
 from threading import Condition
 import json
 import time
+import socket
 
 class StreamingOutput(io.BufferedIOBase):
     """Streaming output buffer."""
@@ -51,6 +52,11 @@ class StreamingOutput(io.BufferedIOBase):
         with self.condition:
             self.frame = buf
             self.condition.notify_all()
+
+    def update_frame(self, frame):
+        """Write processed frame to output."""
+        self.write(frame.tobytes())
+
 
 class StreamingHandler(server.BaseHTTPRequestHandler):
     output = None
@@ -209,33 +215,43 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
     
     @classmethod
-    def create(cls, start_port=8000, end_port=None, host=''):
+    def create(cls, port=8000, retries=1):
         """Create server with automatic port assignment.
         
         Args:
-            host (str): Host address to bind to
-            start_port (int): Starting port number
-            end_port (int, optional): Ending port number (inclusive). 
-                                    If None, will only try start_port
+            port (int): Starting port number
+            retries (int): Number of additional ports to try if busy (default: 1)
             
         Returns:
             tuple: (server, port) - The created server and port it's using
             
         Raises:
-            RuntimeError: If no ports are available in the range
+            RuntimeError: If no ports are available after retries
         """
-        if end_port is None:
-            end_port = start_port
-            
-        for port in range(start_port, end_port + 1):
+        for attempt in range(retries + 1):  # +1 to include initial port
             try:
-                server = cls((host, port), StreamingHandler)
-                print(f"Streaming server started on port {port}")
-                return server, port
+                current_port = port + attempt
+                server = cls(('', current_port), StreamingHandler)
+                print(f"Streaming server started on port {current_port}")
+                return server, current_port
             except OSError as e:
                 if e.errno == 48:  # Address already in use
-                    print(f"Port {port} is busy, trying {port + 1}...")
+                    if attempt < retries:  # Only print if we're going to retry
+                        print(f"Port {current_port} is busy, trying {current_port + 1}...")
                     continue
                 raise  # Re-raise other OSErrors
         
-        raise RuntimeError(f"Could not find available port in range {start_port}-{end_port}")
+        raise RuntimeError(f"Could not find available port after trying {port}-{port + retries}")
+    
+
+    def get_host_ip(self):
+        """Attempt to determine the IP address of the machine."""
+        try:
+            # This creates a dummy socket to connect to 8.8.8.8, and then get the socket's own address
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "localhost"
