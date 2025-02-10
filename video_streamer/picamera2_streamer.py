@@ -35,6 +35,7 @@ import signal
 import socket
 from threading import Thread
 import sys
+import time
 
 try:
     from picamera2 import Picamera2
@@ -54,10 +55,14 @@ class Picamera2Streamer:
         self.address = ('', output_port)
         self.min_size = min_size
         self.frame_rate = frame_rate
+        
+        # Setup streaming components
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
+        
         self.server = StreamingServer(self.address, StreamingHandler)
 
+        # Initialize camera
         self.picam2 = Picamera2()
         self.camera_modes = self.picam2.sensor_modes
         valid_modes = [m for m in self.camera_modes 
@@ -68,7 +73,15 @@ class Picamera2Streamer:
         # Get best mode and its properties
         best_mode = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])
         self.base_size = best_mode["size"]
-        self.camera_format = best_mode.get("unpacked_format", "XBGR8888")
+        self.camera_format = "YUV420"
+
+         # Configure handler with camera settings
+        StreamingHandler.camera_config = {
+            'size': self.base_size,
+            'format': self.camera_format,
+            'frame_rate': self.frame_rate
+        }
+
 
     def get_host_ip(self):
         """Attempt to determine the IP address of the machine."""
@@ -83,10 +96,14 @@ class Picamera2Streamer:
             return "localhost"
 
     def start(self):
+        """Start the camera and server."""
         video_config = self.picam2.create_video_configuration(
-            main={"size": self.base_size, "format": self.camera_format}, controls={'FrameRate': self.frame_rate})
+            main={"size": self.base_size, "format": self.camera_format},
+            controls={'FrameRate': self.frame_rate}
+        )
         self.picam2.configure(video_config)
         self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
+        
         server_thread = Thread(target=self.server.serve_forever)
         server_thread.start()
 
@@ -104,7 +121,7 @@ class Picamera2Streamer:
 
 def main():
     custom_port = 8080
-    custom_min_size = (640, 480)
+    custom_min_size = (1000, 1000)
     custom_fps = 15
     camera_streamer = Picamera2Streamer(output_port=custom_port, min_size=custom_min_size, frame_rate=custom_fps)
 
