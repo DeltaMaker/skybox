@@ -43,7 +43,7 @@ class VisionClient:
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
         
-        self.server, self.port = StreamingServer.create(start_port=start_port)
+        self.server, self.port = StreamingServer.create(start_port,start_port+10)
         
         # Start server in separate thread
         self.server_thread = threading.Thread(target=self.server.serve_forever)
@@ -163,17 +163,18 @@ class VisionClient:
 async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_markers, debug=False):
     """Main client coroutine."""
     client = SimpleWebsocketClient(ws_uri)
-    
-    # Configure streaming handler with command-line settings
-    StreamingHandler.camera_config = {
-        'size': (width, int(width * 3/4)),  # 4:3 aspect ratio
-        'format': 'MJPEG',
-        'frame_rate': fps
-    }
-    
-    viewer = VisionClient(debug=debug)
+    viewer = None
     
     try:
+        # Configure streaming handler with command-line settings
+        StreamingHandler.camera_config = {
+            'size': (width, int(width * 3/4)),  # 4:3 aspect ratio
+            'format': 'MJPEG',
+            'frame_rate': fps
+        }
+        
+        viewer = VisionClient(debug=debug)
+        
         # Connect to websocket
         await client.connect()
         
@@ -207,14 +208,13 @@ async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_marke
                 print(f"\nError processing vision data: {e}")
                 break
 
-    except KeyboardInterrupt:
-        print("\nStopping client...")
     except Exception as e:
-        print(f"\nConnection error: {e}")
+        print(f"\nUnexpected error: {e}")
     finally:
         print("\nCleaning up...")
         await client.disconnect()
-        viewer.cleanup()
+        if viewer:
+            viewer.cleanup()
         print("Done.")
 
 
