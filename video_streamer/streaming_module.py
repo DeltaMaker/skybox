@@ -209,7 +209,7 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
     
     @classmethod
-    def create(cls, host='', start_port=8000, end_port=None):
+    def create(cls, start_port=8000, end_port=None, host=''):
         """Create server with automatic port assignment.
         
         Args:
