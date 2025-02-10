@@ -17,6 +17,10 @@ Usage:
     python vision_client.py [--ws_uri WS_URI] [--width WIDTH] [--fps FPS] 
                           [--mirror] [--hands] [--markers] [--debug]
 """
+import sys
+import os
+# Add the root directory of your project to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import asyncio
 import json
@@ -24,6 +28,8 @@ import cv2
 import numpy as np
 import argparse
 from simple_client import SimpleWebsocketClient
+from video_streamer.streaming_module import StreamingOutput, StreamingHandler, StreamingServer
+import threading
 
 
 class VisionClient:
@@ -32,6 +38,19 @@ class VisionClient:
         self.debug = debug
         self.markers = []
         self.hands = []
+        
+        # Setup HTTP streaming server
+        self.output = StreamingOutput()
+        StreamingHandler.output = self.output
+        
+        
+        self.server = StreamingServer(('', 8000), StreamingHandler)
+        
+        # Start server in separate thread
+        self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.daemon = True
+        self.server_thread.start()
+        print(f"\nStreaming processed frames at: http://localhost:8000")
 
     def draw_markers(self, frame, markers):
         """Draw detected markers on the frame."""
@@ -125,15 +144,34 @@ class VisionClient:
             if frame is not None:
                 frame = self.draw_markers(frame, self.markers)
                 frame = self.draw_hands(frame, self.hands)
-                cv2.imshow('Vision Client', frame)
+                
+                # Write processed frame to streaming output
+                _, jpeg = cv2.imencode('.jpg', frame)
+                self.output.write(jpeg.tobytes())
+                
+                # Check for quit key from keyboard
                 return cv2.waitKey(1) & 0xFF == ord('q')
                 
         return False
+
+    def cleanup(self):
+        """Cleanup resources."""
+        self.server.shutdown()
+        self.server.server_close()
+        cv2.destroyAllWindows()
 
 
 async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_markers, debug=False):
     """Main client coroutine."""
     client = SimpleWebsocketClient(ws_uri)
+    
+    # Configure streaming handler with command-line settings
+    StreamingHandler.camera_config = {
+        'size': (width, int(width * 3/4)),  # 4:3 aspect ratio
+        'format': 'MJPEG',
+        'frame_rate': fps
+    }
+    
     viewer = VisionClient(debug=debug)
     
     try:
@@ -177,7 +215,7 @@ async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_marke
     finally:
         print("\nCleaning up...")
         await client.disconnect()
-        cv2.destroyAllWindows()
+        viewer.cleanup()
         print("Done.")
 
 
