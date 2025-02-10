@@ -33,24 +33,23 @@ import threading
 
 
 class VisionClient:
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, start_port=8000):
         """Initialize the VisionClient."""
         self.debug = debug
         self.markers = []
         self.hands = []
         
-        # Setup HTTP streaming server
+        # Setup HTTP streaming server with auto port selection
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
         
-        
-        self.server = StreamingServer(('', 8000), StreamingHandler)
+        self.server, self.port = StreamingServer.create(start_port=start_port)
         
         # Start server in separate thread
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
-        print(f"\nStreaming processed frames at: http://localhost:8000")
+        print(f"\nStreaming processed frames at: http://localhost:{self.port}")
 
     def draw_markers(self, frame, markers):
         """Draw detected markers on the frame."""

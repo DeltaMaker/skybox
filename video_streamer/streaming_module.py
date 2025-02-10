@@ -207,3 +207,35 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
 class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
+    
+    @classmethod
+    def create(cls, host='', start_port=8000, end_port=None):
+        """Create server with automatic port assignment.
+        
+        Args:
+            host (str): Host address to bind to
+            start_port (int): Starting port number
+            end_port (int, optional): Ending port number (inclusive). 
+                                    If None, will only try start_port
+            
+        Returns:
+            tuple: (server, port) - The created server and port it's using
+            
+        Raises:
+            RuntimeError: If no ports are available in the range
+        """
+        if end_port is None:
+            end_port = start_port
+            
+        for port in range(start_port, end_port + 1):
+            try:
+                server = cls((host, port), StreamingHandler)
+                print(f"Streaming server started on port {port}")
+                return server, port
+            except OSError as e:
+                if e.errno == 48:  # Address already in use
+                    print(f"Port {port} is busy, trying {port + 1}...")
+                    continue
+                raise  # Re-raise other OSErrors
+        
+        raise RuntimeError(f"Could not find available port in range {start_port}-{end_port}")
