@@ -221,7 +221,7 @@ async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_marke
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Vision WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.248:7160/websocket")
+    parser.add_argument("--ws_uri", type=str, default="ws://localhost:7160/websocket")
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
