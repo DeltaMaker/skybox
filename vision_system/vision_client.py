@@ -160,7 +160,7 @@ class VisionClient:
         cv2.destroyAllWindows()
 
 
-async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_markers, debug=False):
+async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_markers, square, debug=False):
     """Main client coroutine."""
     client = SimpleWebsocketClient(ws_uri)
     viewer = None
@@ -181,7 +181,8 @@ async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_marke
         # Configure subscription based on what data we want
         config = {
             'fps': fps,
-            'mirror': mirror
+            'mirror': mirror,
+            'square': square  # Add square option to config
         }
         
         # Only request frame data if we want to display frames
@@ -225,6 +226,7 @@ def main():
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
+    parser.add_argument("--square", action="store_true", help="Crop frame to center square")
     parser.add_argument("--hands", action="store_true", help="Track hands if set")
     parser.add_argument("--markers", action="store_true", help="Track markers if set")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
@@ -236,6 +238,7 @@ def main():
         print(f"WebSocket URI: {args.ws_uri}")
         print(f"Subscriptions:")
         print(f"  - Frames: {'Yes' if args.width else 'No'}")
+        print(f"  - Square: {'Yes' if args.square else 'No'}")
         print(f"  - Hands: {'Yes' if args.hands else 'No'}")
         print(f"  - Markers: {'Yes' if args.markers else 'No'}")
         print("Press 'q' to quit.")
@@ -247,6 +250,7 @@ def main():
             args.mirror,
             args.hands,
             args.markers,
+            args.square,
             args.debug
         ))
     except KeyboardInterrupt:

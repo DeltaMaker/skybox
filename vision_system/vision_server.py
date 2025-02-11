@@ -142,7 +142,20 @@ class VisionServer(SimpleWebsocketServer):
         
         if client_info['send_frames']:  # Only process frames if client requested them
             frame = message_data['frame']
+            
+            # Handle square cropping if requested
+            if client_info['square']:
+                height, width = frame.shape[:2]
+                size = min(width, height)
+                
+                # Calculate crop coordinates for center square
+                start_x = (width - size) // 2
+                start_y = (height - size) // 2
+                frame = frame[start_y:start_y+size, start_x:start_x+size]
+            
+            # Resize after cropping
             resized_frame = cv2.resize(frame, client_info['size'])
+            
             if client_info['mirror']:
                 resized_frame = cv2.flip(resized_frame, 1)
                 
