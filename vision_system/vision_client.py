@@ -43,13 +43,19 @@ class VisionClient:
         self.output = StreamingOutput()
         StreamingHandler.output = self.output
         
-        self.server, self.port = StreamingServer.create(port, retries)
-        
-        # Start server in separate thread
-        self.server_thread = threading.Thread(target=self.server.serve_forever)
-        self.server_thread.daemon = True
-        self.server_thread.start()
-        print(f"\nStreaming processed frames at: http://{self.server.get_host_ip()}:{self.port}")
+        try:
+            self.server, self.port = StreamingServer.create(port=port, retries=retries)
+            
+            # Start server in separate thread
+            self.server_thread = threading.Thread(target=self.server.serve_forever)
+            self.server_thread.daemon = True
+            self.server_thread.start()
+            print(f"\nStreaming processed frames at: http://{self.server.get_host_ip()}:{self.port}")
+
+        except Exception as e:
+            if hasattr(self, 'server'):
+                self.server.server_close()
+            raise RuntimeError(f"Failed to start streaming server: {e}")
 
     def draw_markers(self, frame, markers):
         """Draw detected markers on the frame."""
@@ -155,8 +161,9 @@ class VisionClient:
 
     def cleanup(self):
         """Cleanup resources."""
-        self.server.shutdown()
-        self.server.server_close()
+        if hasattr(self, 'server'):
+            self.server.shutdown()
+            self.server.server_close()
         cv2.destroyAllWindows()
 
 
