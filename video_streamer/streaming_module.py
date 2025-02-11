@@ -216,28 +216,17 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     
     @classmethod
     def create(cls, port=8000, retries=1):
-        """Create server with automatic port assignment.
-        
-        Args:
-            port (int): Starting port number
-            retries (int): Number of additional ports to try if busy (default: 1)
-            
-        Returns:
-            tuple: (server, port) - The created server and port it's using
-            
-        Raises:
-            RuntimeError: If no ports are available after retries
-        """
+        """Create server with automatic port assignment."""
         for attempt in range(retries + 1):  # +1 to include initial port
             try:
                 current_port = port + attempt
                 server = cls(('', current_port), StreamingHandler)
-                print(f"Streaming server started on port {current_port}")
+                logging.info(f"Streaming server started on port {current_port}")
                 return server, current_port
             except OSError as e:
                 if e.errno == 48:  # Address already in use
                     if attempt < retries:  # Only print if we're going to retry
-                        print(f"Port {current_port} is busy, trying {current_port + 1}...")
+                        logging.info(f"Port {current_port} is busy, trying {current_port + 1}...")
                     continue
                 raise  # Re-raise other OSErrors
         
