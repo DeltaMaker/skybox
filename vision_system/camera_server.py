@@ -11,9 +11,9 @@ import numpy as np
 import asyncio
 import argparse
 import requests
-from marker_tracker import MarkerTracker
-from hand_tracker import HandTracker
-from simple_server import SimpleWebsocketServer
+from .marker_tracker import MarkerTracker
+from .hand_tracker import HandTracker
+from .simple_server import SimpleWebsocketServer
 
 
 class CameraServer(SimpleWebsocketServer):
