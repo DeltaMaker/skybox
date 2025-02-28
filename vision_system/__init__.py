@@ -8,7 +8,7 @@ Core Components:
 - SimpleWebsocketServer: Base server class for broadcasting data to multiple clients
 - SimpleWebsocketClient: Base client class for receiving broadcast data
 - CameraServer: Specialized server for streaming camera frames and vision results
-- CameraViewer: Client for displaying camera streams and vision overlays
+- VisionClient: Client for displaying camera streams and vision overlays
 
 Example Implementation:
 - ExampleServer: Demo server showing basic broadcast functionality
@@ -26,6 +26,7 @@ Usage:
     See camera_server.py and camera_viewer.py for vision-specific implementations.
 """
 
-from .camera_websocket_server import CameraServer
+from .camera_server import CameraServer
 from .marker_tracker import MarkerTracker
 from .hand_tracker import HandTracker
+from .vision_client import VisionClient

@@ -144,7 +144,7 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
         # Configure subscription
         config = {
             #"size": [width, height],
-            "width": width,
+            #"width": width,
             "fps": fps,
             "mirror": mirror,
             "hands": track_hands
@@ -175,7 +175,7 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://localhost:7160/websocket")
+    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.248:7160/websocket")
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
@@ -193,7 +193,7 @@ def main():
             args.fps, 
             args.mirror, 
             args.hands,
-            args.debug
+            True
         ))
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")

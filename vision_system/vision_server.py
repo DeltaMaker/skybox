@@ -144,7 +144,7 @@ class VisionServer(SimpleWebsocketServer):
             frame = message_data['frame']
             
             # Handle square cropping if requested
-            if client_info['square']:
+            if client_info.get('square', []):
                 height, width = frame.shape[:2]
                 size = min(width, height)
                 
@@ -219,12 +219,12 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Vision Server for HTTP snapshot cameras")
-    parser.add_argument("--url", default="http://localhost:8080/?action=snapshot", help="URL of the snapshot endpoint")
+    parser.add_argument("--url", default="http://deltamaker-0409.local/webcam/?action=snapshot", help="URL of the snapshot endpoint")
     parser.add_argument("--auth", help="Basic auth in format username:password")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=7160, help="Port to listen on")
-    parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--debug", action="store_false", help="Enable debug output")
     
     args = parser.parse_args()
     
