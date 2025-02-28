@@ -2,6 +2,11 @@
 CameraServer - Base class for camera streaming servers.
 Provides common functionality for frame processing and client handling.
 """
+import os
+import sys
+# Add the parent directory to sys.path if running as script
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import json
 import logging
@@ -11,9 +16,9 @@ import numpy as np
 import asyncio
 import argparse
 import requests
-from .marker_tracker import MarkerTracker
-from .hand_tracker import HandTracker
-from .simple_server import SimpleWebsocketServer
+from vision_system.marker_tracker import MarkerTracker
+from vision_system.hand_tracker import HandTracker
+from websocket_server.simple_server import SimpleWebsocketServer
 
 
 class CameraServer(SimpleWebsocketServer):

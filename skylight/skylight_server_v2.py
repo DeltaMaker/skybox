@@ -7,8 +7,8 @@ import asyncio
 import json
 import websockets
 from aiohttp import web
-from vision_system.simple_server import SimpleWebsocketServer
-from vision_system.simple_client import SimpleWebsocketClient
+from websocket_server.simple_server import SimpleWebsocketServer
+from websocket_server.simple_client import SimpleWebsocketClient
 from skylight.led_controller import LEDController
 from config.config_manager import ConfigManager
 
@@ -362,7 +362,12 @@ class SkylightServer(SimpleWebsocketServer):
                 print(f"Cleanup error: {e}")
 
 def main():
-    config_manager = ConfigManager(config_file="localhost.conf", config_dir="../config")
+    # Update config path to use absolute path
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_dir = os.path.join(os.path.dirname(current_dir), 'config')
+    config_manager = ConfigManager(config_file="localhost.conf", config_dir=config_dir)
+    
+    # Explicitly set debug=True
     server = SkylightServer(config_manager, debug=True)
     
     try:

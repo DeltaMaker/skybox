@@ -17,7 +17,7 @@ import asyncio
 import json
 import argparse
 import websockets
-from simple_client import SimpleWebsocketClient
+from websocket_server.simple_client import SimpleWebsocketClient
 
 class ExampleViewer:
     def __init__(self, debug: bool = False):

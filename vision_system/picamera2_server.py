@@ -3,6 +3,12 @@ Picamera2Server - Camera server implementation for Raspberry Pi Camera.
 Requires picamera2 package to be installed.
 """
 
+import os
+import sys
+# Add the parent directory to sys.path if running as script
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import logging
 import time
 import io
@@ -20,7 +26,7 @@ except ImportError:
     print("Picamera2 is not available on this system.")
     raise
 
-from camera_server import CameraServer
+from vision_system.camera_server import CameraServer
 
 class StreamingOutput(io.BufferedIOBase):
     def __init__(self):

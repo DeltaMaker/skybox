@@ -25,6 +25,12 @@ Date: 2024-03-21
 Version: 0.1
 """
 
+import os
+import sys
+# Add the parent directory to sys.path if running as script
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import logging
 import requests
 import numpy as np
@@ -32,7 +38,7 @@ import cv2
 from requests.auth import HTTPBasicAuth
 import time
 
-from camera_server import CameraServer
+from vision_system.camera_server import CameraServer
 
 
 class HTTPSnapshotServer(CameraServer):

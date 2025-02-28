@@ -25,6 +25,11 @@ Usage:
 
 Pairs with camera_server.py for receiving the camera stream and vision results.
 """
+import os
+import sys
+# Add the parent directory to sys.path if running as script
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import asyncio
 import websockets
@@ -32,7 +37,7 @@ import json
 import cv2
 import numpy as np
 import argparse
-from simple_client import SimpleWebsocketClient
+from websocket_server.simple_client import SimpleWebsocketClient
 
 
 class CameraViewer:

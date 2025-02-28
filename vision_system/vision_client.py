@@ -27,7 +27,7 @@ import json
 import cv2
 import numpy as np
 import argparse
-from simple_client import SimpleWebsocketClient
+from websocket_server.simple_client import SimpleWebsocketClient
 from video_streamer.streaming_module import StreamingOutput, StreamingHandler, StreamingServer
 import threading
 
@@ -269,4 +269,4 @@ def main():
         print("Exited.")
 
 if __name__ == "__main__":
-    main() 
+    main()

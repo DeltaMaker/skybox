@@ -5,7 +5,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import mediapipe as mp
 import cv2
-from .geometry_utils import Point, draw_text
+# Change relative import to absolute
+from vision_system.geometry_utils import Point, draw_text
 
 class HandTracker:
     def __init__(self, mode=False, maxHands=2, detectionCon=0.7,modelComplexity=1,trackCon=0.7,draw=True):

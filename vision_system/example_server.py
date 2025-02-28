@@ -16,7 +16,7 @@ Pairs with example_client.py for testing WebSocket communication.
 import asyncio
 import json
 import time
-from simple_server import SimpleWebsocketServer
+from websocket_server.simple_server import SimpleWebsocketServer
 
 class ExampleServer(SimpleWebsocketServer):
     def __init__(self, host='0.0.0.0', port=7160, debug=False):
