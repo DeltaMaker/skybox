@@ -40,74 +40,58 @@ class Picamera2Server(CameraServer):
         self.camera_modes = None
         self.output = StreamingOutput()
         self.debug = debug
+        self.client_sizes = {}  # Track client window sizes
         
         # Get camera modes
-        modes = self._get_camera_modes()
-        if not modes:
-            raise RuntimeError("No camera modes available")
-            
-        # Find first mode >= min_size
-        base_size = min_size
-        qualifying_modes = [m for m in modes if m['resolution'][0] >= min_size[0] and m['resolution'][1] >= min_size[1]]
-        if qualifying_modes:
-            best_mode = min(qualifying_modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-            base_size = best_mode['resolution']
-            if self.debug:
-                print(f"\nSelected mode: {base_size[0]}x{base_size[1]} @ {best_mode['fps']:.2f}fps")
-        else:
-            largest_mode = max(modes, key=lambda m: m['resolution'][0] * m['resolution'][1])
-            base_size = largest_mode['resolution']
-            if self.debug:
-                print(f"\nUsing largest mode: {base_size[0]}x{base_size[1]} @ {largest_mode['fps']:.2f}fps")
+        self.camera_modes = self._get_camera_modes()
         
-        super().__init__(host, port, base_size, debug=debug)
+        # Start with smallest available mode
+        smallest_mode = min(self.camera_modes, key=lambda m: m['size'][0] * m['size'][1])
+        self.camera_format = smallest_mode.get("unpacked_format", "XBGR8888")
+        super().__init__(host, port, smallest_mode["size"], debug=debug)
         
-        # Try to initialize camera, but don't fail if busy
-        try:
-            self.picam2 = Picamera2()
-            if self.debug:
-                print("Camera initialized successfully")
-        except Exception as e:
-            logging.warning(f"Camera initialization warning: {e}")
-            if self.debug:
-                print(f"Warning: {e}")
-            # Continue initialization, will retry in _setup_camera
-
+        if self.debug:
+            print(f"\nInitial mode: {self.base_size[0]}x{self.base_size[1]} @ {smallest_mode['fps']:.2f}fps")
+            print(f"Format: {self.camera_format}")
+        
+       
+        camera_info = self.picam2.camera_properties if self.picam2 else {}
+        self.camera_name = camera_info.get('Model', 'Unknown')
+        self.camera_id = camera_info.get('Location', 'Unknown')
+ 
+    
     def _get_camera_modes(self):
         """Query available camera modes from Picamera2."""
         if not self.picam2:
+            if self.debug:
+                print("\nNo camera instance, creating new one for mode query")
             self.picam2 = Picamera2()
         
         if self.debug:
-            print("\nAvailable camera modes:")
-            raw_modes = self.picam2.sensor_modes
-            for mode in raw_modes:
-                size = mode.get('size', (0, 0))
-                format = mode.get('format', 'Unknown')
-                fps = mode.get('fps', 0)
-                print(f"  {size[0]}x{size[1]} @ {fps:.2f}fps ({format})")
+            print("\nQuerying camera capabilities:")
+            print("----------------------------------------")
+            cam_info = self.picam2.camera_properties
+            print(f"Camera: {cam_info.get('Model', 'Unknown')} [{cam_info.get('PixelArraySize', ['?', '?'])[0]}x{cam_info.get('PixelArraySize', ['?', '?'])[1]}]")
+            print(f"Location: {cam_info.get('Location', 'Unknown')}")
         
-        # Return structured mode information
-        modes = []
-        try:
-            raw_modes = self.picam2.sensor_modes
-            for mode in raw_modes:
-                size = mode.get('size', (0, 0))
-                format = mode.get('format', 'Unknown')
-                fps = mode.get('fps', 0)
-                if size and fps:
-                    modes.append({
-                        'resolution': size,
-                        'format': format,
-                        'fps': fps
-                    })
-            return modes
+        sensor_modes = self.picam2.sensor_modes
+        
+        if not sensor_modes:
+            raise RuntimeError("No valid camera modes found!")
             
-        except Exception as e:
-            logging.error(f"Failed to get camera modes: {e}")
-            if self.debug:
-                print(f"\nError getting camera modes: {e}")
-            return []
+        if self.debug:
+            print("\nAvailable Modes:")
+            for i, mode in enumerate(sensor_modes):
+                crop = mode.get('crop_limits', (0, 0, 0, 0))
+                print(f"Mode {i}: {mode.get('format', 'Unknown')} : {mode['size'][0]}x{mode['size'][1]} "
+                      f"[{mode['fps']:.2f} fps - ({crop[0]}, {crop[1]})/{crop[2]}x{crop[3]} crop]")
+            
+            print("\nRaw camera properties:")
+            for key, value in self.picam2.camera_properties.items():
+                print(f"{key}: {value}")
+            print("----------------------------------------")
+        
+        return sensor_modes
 
     def _setup_camera(self):
         """Configure camera."""
@@ -127,12 +111,11 @@ class Picamera2Server(CameraServer):
             # Create new camera instance
             self.picam2 = Picamera2()
             
+            print(f"base_size before create_video_configuration: {self.base_size}")
             # Configure and start recording
             video_config = self.picam2.create_video_configuration(
-                main={"size": self.base_size, "format": "RGB888"},
-                buffer_count=4
-            )
-            
+                main={"size": self.base_size}, controls={'FrameRate':15})
+        
             self.picam2.configure(video_config)
             self.picam2.start()
             self.picam2.start_recording(MJPEGEncoder(), FileOutput(self.output))
@@ -185,20 +168,57 @@ class Picamera2Server(CameraServer):
                     print(f"Error closing camera: {e}")
             self.picam2 = None
 
-    def get_status_info(self):
-        """Provide camera-specific status information."""
-        camera_info = self.picam2.camera_properties if self.picam2 else {}
-        return {
-            'camera_type': self.__class__.__name__,
-            'camera_name': camera_info.get('Model', 'Unknown'),
-            'camera_id': camera_info.get('Location', 'Unknown'),
-            'base_resolution': self.base_size,
-            'available_modes': self._get_camera_modes(),
-            'fps_stats': {
-                'target': max(client.get('fps', 1) for client in self.clients.values()) if self.clients else 0,
-                'frame_count': self.frame_count
-            }
-        }
+    def update_camera_mode(self, client_width, client_height):
+        """Update camera mode based on client size requirements."""
+        if not self.picam2:
+            return False
+            
+        # Get current modes
+        modes = self.picam2.sensor_modes
+        if not modes:
+            return False
+            
+        # Find smallest mode that satisfies the client size
+        valid_modes = [m for m in modes 
+                      if m['size'][0] >= client_width and m['size'][1] >= client_height]
+        
+        if not valid_modes:
+            if self.debug:
+                print(f"No mode available >= {client_width}x{client_height}, keeping current mode")
+            return False
+            
+        # Get smallest valid mode
+        best_mode = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])
+        new_size = best_mode['size']
+        
+        # Only update if the size would change
+        if new_size != self.base_size:
+            if self.debug:
+                print(f"Updating camera mode to {new_size[0]}x{new_size[1]} @ {best_mode['fps']:.2f}fps")
+            
+            self.base_size = new_size
+            self.camera_format = best_mode.get("unpacked_format", "XBGR8888")
+            
+            # Reconfigure camera
+            self._setup_camera()
+            return True
+            
+        return False
+
+    def handle_client_resize(self, client, width, height):
+        """Handle client window resize event."""
+        if self.debug:
+            print(f"Client resize: {width}x{height}")
+        
+        # Track largest client size
+        self.client_sizes[client] = (width, height)
+        
+        # Find largest client dimensions
+        max_width = max(size[0] for size in self.client_sizes.values())
+        max_height = max(size[1] for size in self.client_sizes.values())
+        
+        # Update camera mode if needed
+        self.update_camera_mode(max_width, max_height)
 
 def main():
     """Run the Picamera2 server with command line configuration."""
@@ -207,32 +227,22 @@ def main():
                       help="Host address to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=7160,
                       help="Port number to listen on (default: 7160)")
-    parser.add_argument("--min-size", type=str, default="1400x900",
-                      help="Minimum camera resolution in WxH format (default: 1400x900)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
     
     args = parser.parse_args()
 
     try:
-        # Parse min_size
-        w, h = map(int, args.min_size.split('x'))
-        min_size = (w, h)
-        
         logging.info(f"Starting Picamera2 server on {args.host}:{args.port}")
         server = Picamera2Server(
             host=args.host,
             port=args.port,
-            min_size=min_size,
             debug=args.debug
         )
         server.run()
-    except ValueError as e:
-        logging.error(f"Invalid min-size format. Use WxH format (e.g., 1400x900)")
-        sys.exit(1)
     except RuntimeError as e:
         if "busy" in str(e).lower():
-            logging.error("Camera is in use by another process.")
+            logging.error("Camera is in use by another process. Please ensure no other camera applications are running.")
             if args.debug:
                 logging.error("Try: 'sudo lsof /dev/video*' to see what's using the camera")
         else:
