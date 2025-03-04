@@ -42,7 +42,7 @@ class SkylightClient(SimpleWebsocketClient):
                 print(f"Client receive error: {e}")
 
 class SkylightServer(SimpleWebsocketServer):
-    def __init__(self, config_manager, host='0.0.0.0', debug=False):
+    def __init__(self, config_manager, host='0.0.0.0', debug=True):
         # Initialize server
         port = config_manager.getint('skylight', 'skylight_port', 7120)
         super().__init__(host=host, port=port, debug=debug)
@@ -365,6 +365,7 @@ def main():
     # Update config path to use absolute path
     current_dir = os.path.dirname(os.path.abspath(__file__))
     config_dir = os.path.join(os.path.dirname(current_dir), 'config')
+    print(f"Config directory: {config_dir}")
     config_manager = ConfigManager(config_file="localhost.conf", config_dir=config_dir)
     
     # Explicitly set debug=True

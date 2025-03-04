@@ -65,16 +65,21 @@ class Picamera2Streamer:
         # Initialize camera
         self.picam2 = Picamera2()
         self.camera_modes = self.picam2.sensor_modes
+        print(f"Camera modes: {self.camera_modes}")
         valid_modes = [m for m in self.camera_modes 
                   if m['size'][0] >= min_size[0] and m['size'][1] >= min_size[1]]
         if not valid_modes:
             raise RuntimeError(f"No available camera modes larger than {min_size[0]}x{min_size[1]}")
-        
+        print(f"Valid modes: {valid_modes}")
         # Get best mode and its properties
         best_mode = min(valid_modes, key=lambda m: m['size'][0] * m['size'][1])
+        print(f"Best mode: {best_mode}")
         self.base_size = best_mode["size"]
         self.camera_format = "YUV420"
-
+        print(f"Base size: {self.base_size}")
+        print(f"Camera format: {self.camera_format}")
+        print(f"Frame rate: {self.frame_rate}") 
+        
          # Configure handler with camera settings
         StreamingHandler.camera_config = {
             'size': self.base_size,
@@ -110,7 +115,7 @@ class Picamera2Streamer:
 
 def main():
     custom_port = 8080
-    custom_min_size = (1000, 1000)
+    custom_min_size = (1920,1080)
     custom_fps = 15
     camera_streamer = Picamera2Streamer(output_port=custom_port, min_size=custom_min_size, frame_rate=custom_fps)
 

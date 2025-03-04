@@ -1,0 +1,17 @@
+#version: '3'
+services:
+  rpi-skybox:
+    build: .
+    ports:
+      - "2200:22"     # SSH port (changed to avoid conflicts)
+      - "7120:7120" # Skylight server port
+      - "7130:7130" # WebSocket port
+      - "7140:7140" # Vision system port
+      - "7150:7150" # Neopixel server port
+    volumes:
+      - .:/home/pi/skybox
+      - ~/.ssh:/home/pi/.ssh:ro  # Mount SSH keys (read-only)
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    privileged: true  # Needed for LED control 

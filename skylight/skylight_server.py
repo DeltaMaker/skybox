@@ -63,9 +63,9 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
                 }
             } 
         }
-
+        print(f"Connections: {connections}")
         # Initialize the WebSocket client mixin with connections
-        WebSocketClientMixin.__init__(self, connections, debug)
+        WebSocketClientMixin.__init__(self, connections, debug=False)
 
         # Other Skylight-specific initializations
         self.config_manager = config_manager
@@ -337,7 +337,11 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
         await self.stop_client()
 
 def main():
-    config_manager = ConfigManager(config_file="localhost.conf", config_dir="../config")
+    # Update config path to use absolute path
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_dir = os.path.join(os.path.dirname(current_dir), 'config')
+    print(f"Config directory: {config_dir}")
+    config_manager = ConfigManager(config_file="localhost.conf", config_dir=config_dir)
 
     skylight_server = SkylightServer(config_manager)
     skylight_server.start()
