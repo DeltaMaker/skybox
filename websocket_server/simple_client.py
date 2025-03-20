@@ -15,7 +15,7 @@ Usage:
 import websockets
 import json
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable, Awaitable
 
 class SimpleWebsocketClient:
     def __init__(self, url: str):
@@ -26,6 +26,22 @@ class SimpleWebsocketClient:
         self.subscribed = False
         self.max_retries = 5
         self.retry_delay = 1.0  # Start with 1 second delay
+        
+        # Default subscription handlers
+        self._subscription_predicate = lambda resp: resp.get('status') == 'subscribed'
+        self._notification_handler = None
+        
+    def set_subscription_handlers(self, 
+                                confirmation_predicate: Callable[[Dict], bool],
+                                notification_handler: Optional[Callable[[Dict], Awaitable[None]]] = None):
+        """Configure how to determine subscription success and handle notifications.
+        
+        Args:
+            confirmation_predicate: Function that takes a response dict and returns True if subscription is confirmed
+            notification_handler: Optional async function to handle non-confirmation messages during subscription
+        """
+        self._subscription_predicate = confirmation_predicate
+        self._notification_handler = notification_handler
 
     async def connect(self) -> None:
         """Establish websocket connection with retries."""
@@ -69,15 +85,20 @@ class SimpleWebsocketClient:
                 
                 # Wait for confirmation message with timeout
                 try:
-                    response = await asyncio.wait_for(self.ws.recv(), timeout=5.0)
-                    confirmation = json.loads(response)
-                    
-                    if confirmation.get('status') == 'subscribed':
-                        self.subscribed = True
-                        print(f"Successfully subscribed to {self.url}")
-                        return
-                    else:
-                        print(f"Unexpected subscription response: {confirmation}")
+                    while True:  # Keep reading messages until we get confirmation
+                        response = await asyncio.wait_for(self.ws.recv(), timeout=5.0)
+                        confirmation = json.loads(response)
+                        
+                        # Check if this confirms subscription
+                        if self._subscription_predicate(confirmation):
+                            self.subscribed = True
+                            print(f"Successfully subscribed to {self.url}")
+                            return
+                            
+                        # If not confirmation, might be a notification
+                        if self._notification_handler:
+                            await self._notification_handler(confirmation)
+                            
                 except asyncio.TimeoutError:
                     print("Subscription confirmation timeout")
                 

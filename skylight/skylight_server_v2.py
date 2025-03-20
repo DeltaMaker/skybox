@@ -11,6 +11,7 @@ from websocket_server.simple_server import SimpleWebsocketServer
 from websocket_server.simple_client import SimpleWebsocketClient
 from skylight.led_controller import LEDController
 from config.config_manager import ConfigManager
+from typing import Dict
 
 class SkylightClient(SimpleWebsocketClient):
     """Client for connecting to external services (Moonraker, Skybox)"""
@@ -19,6 +20,23 @@ class SkylightClient(SimpleWebsocketClient):
         self.subscription = subscription
         self.debug = debug
         self.callback = None
+
+        # Configure subscription handlers for JSON-RPC format
+        self.set_subscription_handlers(
+            # Confirm subscription on matching result ID
+            confirmation_predicate=lambda resp: (
+                'jsonrpc' in resp and 
+                'result' in resp and 
+                resp.get('id') == subscription.get('id')
+            ),
+            # Handle notifications during subscription
+            notification_handler=self._handle_subscription_notification
+        )
+
+    async def _handle_subscription_notification(self, notification: Dict):
+        """Handle notifications that come during subscription process"""
+        if self.callback and 'method' in notification:
+            await self.callback(notification)
 
     async def start(self, callback):
         """Start client with callback for updates"""
@@ -115,7 +133,7 @@ class SkylightServer(SimpleWebsocketServer):
                 "method": "printer.objects.subscribe",
                 "params": {
                     "objects": {
-                        "print_stat": None,
+                        "print_stats": None,
                         "display_status": ["progress"],
                         "idle_timeout": ["state"],
                         "extruder": ["temperature", "target"],
