@@ -14,6 +14,7 @@ Usage:
 
 import websockets
 import json
+import asyncio
 from typing import Optional, Dict, Any
 
 class SimpleWebsocketClient:
@@ -21,42 +22,78 @@ class SimpleWebsocketClient:
         """Initialize websocket client with URL."""
         self.url = url
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.connected = False
+        self.subscribed = False
+        self.max_retries = 5
+        self.retry_delay = 1.0  # Start with 1 second delay
 
     async def connect(self) -> None:
-        """Establish websocket connection."""
-        try:
-            self.ws = await websockets.connect(
-                self.url,
-                ping_interval=10,
-                ping_timeout=30
-            )
-        except Exception as e:
-            raise ConnectionError(f"Failed to connect to {self.url}: {str(e)}")
+        """Establish websocket connection with retries."""
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                self.ws = await websockets.connect(
+                    self.url,
+                    ping_interval=10,
+                    ping_timeout=30
+                )
+                self.connected = True
+                print(f"Successfully connected to {self.url}")
+                return
+            except Exception as e:
+                retries += 1
+                if retries < self.max_retries:
+                    print(f"Connection attempt {retries} failed: {str(e)}")
+                    await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
+                else:
+                    raise ConnectionError(f"Failed to connect to {self.url} after {self.max_retries} attempts: {str(e)}")
 
     async def disconnect(self) -> None:
         """Close websocket connection if it exists."""
         if self.ws:
             await self.ws.close()
             self.ws = None
+        self.connected = False
+        self.subscribed = False
 
     async def subscribe(self, config: Dict[str, Any]) -> None:
-        """Send subscription configuration to the server."""
+        """Send subscription configuration to the server with retries."""
         if not self.ws:
             raise ConnectionError("Not connected to websocket")
         
-        try:
-            # Send configuration message
-            await self.ws.send(json.dumps(config))
-            
-            # Wait for confirmation message
-            response = await self.ws.recv()
-            confirmation = json.loads(response)
-            
-            if confirmation.get('status') != 'subscribed':
-                raise ConnectionError("Server did not confirm subscription")
-            
-        except Exception as e:
-            raise ConnectionError(f"Failed to subscribe: {str(e)}")
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                # Send configuration message
+                await self.ws.send(json.dumps(config))
+                
+                # Wait for confirmation message with timeout
+                try:
+                    response = await asyncio.wait_for(self.ws.recv(), timeout=5.0)
+                    confirmation = json.loads(response)
+                    
+                    if confirmation.get('status') == 'subscribed':
+                        self.subscribed = True
+                        print(f"Successfully subscribed to {self.url}")
+                        return
+                    else:
+                        print(f"Unexpected subscription response: {confirmation}")
+                except asyncio.TimeoutError:
+                    print("Subscription confirmation timeout")
+                
+                retries += 1
+                if retries < self.max_retries:
+                    print(f"Subscription attempt {retries} failed, retrying...")
+                    await asyncio.sleep(self.retry_delay * retries)
+                else:
+                    raise ConnectionError(f"Failed to subscribe after {self.max_retries} attempts")
+            except Exception as e:
+                retries += 1
+                if retries < self.max_retries:
+                    print(f"Subscription error: {str(e)}, retrying...")
+                    await asyncio.sleep(self.retry_delay * retries)
+                else:
+                    raise ConnectionError(f"Failed to subscribe: {str(e)}")
 
     async def receive(self) -> str:
         """
@@ -70,8 +107,22 @@ class SimpleWebsocketClient:
             message = await self.ws.recv()
             return message
         except websockets.exceptions.ConnectionClosed as e:
+            self.connected = False
+            self.subscribed = False
             raise websockets.exceptions.ConnectionClosed(
                 e.code, e.reason
             ) from e
         except Exception as e:
+            self.connected = False
+            self.subscribed = False
             raise ConnectionError(f"Failed to receive message: {str(e)}")
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if client is connected."""
+        return self.connected and self.ws and not self.ws.closed
+
+    @property
+    def is_subscribed(self) -> bool:
+        """Check if client is subscribed."""
+        return self.subscribed and self.is_connected
