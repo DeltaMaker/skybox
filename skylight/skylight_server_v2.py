@@ -66,13 +66,19 @@ class SkylightServer(SimpleWebsocketServer):
 
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
-        # Start clients before starting server
+        # First start the server
+        await super().start_server()
+        
+        # Then start clients after server is running
         if self.debug:
             print("Starting client connections...")
-        await self.start_clients()  # Start clients when server starts
-        
-        # Now start the server
-        await super().start_server()
+        try:
+            await self.start_clients()  # Start clients after server is running
+        except Exception as e:
+            if self.debug:
+                print(f"Error starting clients: {e}")
+            # Continue running even if clients fail to connect
+            # They can be reconnected later
 
     def initialize_current_state(self, led_count, update_interval):
         """Initialize the current state of the Skylight system."""
@@ -151,8 +157,17 @@ class SkylightServer(SimpleWebsocketServer):
 
     async def start_clients(self):
         """Start all client connections"""
-        await self.moonraker_client.start(self.handle_moonraker_update)
-        await self.skybox_client.start(self.handle_skybox_update)
+        try:
+            await self.moonraker_client.start(self.handle_moonraker_update)
+        except Exception as e:
+            if self.debug:
+                print(f"Failed to start Moonraker client: {e}")
+            
+        try:
+            await self.skybox_client.start(self.handle_skybox_update)
+        except Exception as e:
+            if self.debug:
+                print(f"Failed to start Skybox client: {e}")
 
     async def handle_moonraker_update(self, data):
         """Handle updates from Moonraker"""
