@@ -63,11 +63,16 @@ class SkylightServer(SimpleWebsocketServer):
         
         # Start with rainbow preset
         self.show_preset("rainbow")
-        
-        # Start clients immediately
+
+    async def start_server(self):
+        """Start the combined HTTP and WebSocket server."""
+        # Start clients before starting server
         if self.debug:
             print("Starting client connections...")
-        asyncio.create_task(self.start_clients())  # Only start the Moonraker and Skybox clients
+        await self.start_clients()  # Start clients when server starts
+        
+        # Now start the server
+        await super().start_server()
 
     def initialize_current_state(self, led_count, update_interval):
         """Initialize the current state of the Skylight system."""
@@ -142,7 +147,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     def perform_initialization(self, config):
         """Initialize when first client connects"""
-        pass  # Client connections are now started in __init__
+        pass  # Client connections are now started in start_server
 
     async def start_clients(self):
         """Start all client connections"""
