@@ -11,7 +11,6 @@ from websocket_server.simple_server import SimpleWebsocketServer
 from websocket_server.simple_client import SimpleWebsocketClient
 from skylight.led_controller import LEDController
 from config.config_manager import ConfigManager
-from typing import Dict
 
 class SkylightClient(SimpleWebsocketClient):
     """Client for connecting to external services (Moonraker, Skybox)"""
@@ -20,23 +19,6 @@ class SkylightClient(SimpleWebsocketClient):
         self.subscription = subscription
         self.debug = debug
         self.callback = None
-
-        # Configure subscription handlers for JSON-RPC format
-        self.set_subscription_handlers(
-            # Confirm subscription on matching result ID
-            confirmation_predicate=lambda resp: (
-                'jsonrpc' in resp and 
-                'result' in resp and 
-                resp.get('id') == subscription.get('id')
-            ),
-            # Handle notifications during subscription
-            notification_handler=self._handle_subscription_notification
-        )
-
-    async def _handle_subscription_notification(self, notification: Dict):
-        """Handle notifications that come during subscription process"""
-        if self.callback and 'method' in notification:
-            await self.callback(notification)
 
     async def start(self, callback):
         """Start client with callback for updates"""
@@ -77,7 +59,7 @@ class SkylightServer(SimpleWebsocketServer):
         
         # Initialize clients
         self.moonraker_client = self.setup_moonraker_client()
-        self.skybox_client = self.setup_skybox_client()
+        # self.skybox_client = self.setup_skybox_client()
         
         # Start with rainbow preset
         self.show_preset("rainbow")
@@ -133,7 +115,7 @@ class SkylightServer(SimpleWebsocketServer):
                 "method": "printer.objects.subscribe",
                 "params": {
                     "objects": {
-                        "print_stats": None,
+                        "print_stat": None,
                         "display_status": ["progress"],
                         "idle_timeout": ["state"],
                         "extruder": ["temperature", "target"],
@@ -170,7 +152,7 @@ class SkylightServer(SimpleWebsocketServer):
     async def start_clients(self):
         """Start all client connections"""
         await self.moonraker_client.start(self.handle_moonraker_update)
-        await self.skybox_client.start(self.handle_skybox_update)
+        # await self.skybox_client.start(self.handle_skybox_update)
 
     async def handle_moonraker_update(self, data):
         """Handle updates from Moonraker"""
@@ -380,7 +362,7 @@ class SkylightServer(SimpleWebsocketServer):
         """Cleanup when server stops"""
         try:
             await self.moonraker_client.disconnect()
-            await self.skybox_client.disconnect()
+            # await self.skybox_client.disconnect()
             self.led_controller.cleanup()
         except Exception as e:
             if self.debug:
