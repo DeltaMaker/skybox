@@ -54,6 +54,10 @@ class SimpleWebsocketServer:
         """Hook to add custom routes for the WebSocket server."""
         pass
 
+    def start_clients(self):
+        """Hook to start optional clients for the WebSocket server."""
+        pass
+
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
         app = web.Application()
@@ -70,6 +74,9 @@ class SimpleWebsocketServer:
         host_ip = self.get_host_ip()
         print(f"Server started on ws://{host_ip}:{self.port} (WebSocket and HTTP)")
         print(f"Server status at http://{host_ip}:{self.port}/status")
+
+        await self.start_clients()
+
         # Start the frame sending task
         asyncio.create_task(self.send_broadcast_loop())
 

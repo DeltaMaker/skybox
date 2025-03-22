@@ -65,15 +65,6 @@ class SkylightServer(SimpleWebsocketServer):
         # Start with rainbow preset
         self.show_preset("rainbow")
 
-    async def start_server(self):
-        """Start the combined HTTP and WebSocket server."""
-        # Start clients before starting server
-        if self.debug:
-            print("Starting client connections...")
-        await self.start_clients()  # Start clients when server starts
-        
-        # Now start the server
-        await super().start_server()
 
     def initialize_current_state(self, led_count, update_interval):
         """Initialize the current state of the Skylight system."""
@@ -132,15 +123,19 @@ class SkylightServer(SimpleWebsocketServer):
         def moonraker_confirmation(response: dict) -> bool:
             if response.get('jsonrpc') == '2.0':
                 if 'result' in response:
+                    if self.debug:
+                        print("Moonraker subscription confirmed")
                     return True
                 if 'error' in response:
                     print(f"Subscription error: {response['error']}")
             return False
         
         async def handle_notifications(msg: dict) -> None:
-            if 'method' in msg and msg['method'].startswith('notify_'):
-                # Handle Moonraker status update notifications
-                print(f"Received status update: {msg}")
+            # Only handle non-status-update notifications here
+            # Status updates are handled by handle_moonraker_update
+            if 'method' in msg and msg['method'] != 'notify_status_update':
+                if self.debug:
+                    print(f"Moonraker notification: {msg['method']}")
         
         client.set_subscription_handlers(
             confirmation_predicate=moonraker_confirmation,
@@ -199,7 +194,9 @@ class SkylightServer(SimpleWebsocketServer):
 
     async def handle_moonraker_update(self, data):
         """Handle updates from Moonraker"""
-        print(f"Moonraker data received: {data}")
+        if self.debug:
+            print(f"Moonraker status update received")
+        
         if 'result' in data and 'status' in data['result']:
             self.update_moonraker_state(data['result']['status'])
         elif 'params' in data and len(data['params']) > 0:

@@ -185,7 +185,7 @@ def main():
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
-    parser.add_argument("--hands", action="store_true", help="Track hands if set")
+    parser.add_argument("--hands", action="store_false", help="Track hands if set")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
 
     args = parser.parse_args()
