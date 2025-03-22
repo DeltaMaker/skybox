@@ -1,6 +1,53 @@
 """
-CameraServer - Base class for camera streaming servers.
-Provides common functionality for frame processing and client handling.
+Camera Server Implementation
+==========================
+
+A flexible and extensible camera streaming server that supports multiple camera types
+and provides real-time computer vision capabilities.
+
+Key Features:
+------------
+- Supports multiple camera types (OpenCV, HTTP stream)
+- Real-time video streaming over WebSocket
+- Marker tracking for ArUco markers
+- Hand tracking capabilities
+- Configurable frame rates and resolutions per client
+- Automatic frame resizing and mirroring
+- FPS monitoring and performance statistics
+- Asynchronous client handling
+
+Architecture:
+------------
+- Base CameraServer class providing core functionality
+- Specialized implementations for different camera types:
+  * OpenCVServer: For local camera devices
+  * HTTPServer: For IP cameras or HTTP video streams
+
+Usage:
+------
+1. Direct usage:
+   ```python
+   server = OpenCVServer(camera_id=0, port=7160)
+   server.run()
+   ```
+
+2. Command line:
+   ```bash
+   python camera_server.py --port 7160 --camera 0 --debug
+   ```
+
+Dependencies:
+------------
+- OpenCV (cv2)
+- NumPy
+- websockets
+- requests (for HTTP cameras)
+- vision_system.marker_tracker
+- vision_system.hand_tracker
+
+Author: Bob Houston
+Version: 0.1
+Date: 2025-03-22
 """
 import os
 import sys

@@ -50,12 +50,17 @@ class SimpleWebsocketServer:
             except Exception:
                 return "localhost"
     
+    def add_custom_routes(self, router):
+        """Hook to add custom routes for the WebSocket server."""
+        pass
+
     async def start_server(self):
         """Start the combined HTTP and WebSocket server."""
         app = web.Application()
         app.router.add_route('GET', '/websocket', self.websocket_handler)
         app.router.add_route('GET', '/status', self.http_handler)
-
+        self.add_custom_routes(app.router)
+        
         runner = web.AppRunner(app)
         await runner.setup()
 

@@ -24,6 +24,7 @@ class SkylightClient(SimpleWebsocketClient):
         """Start client with callback for updates"""
         self.callback = callback
         await self.connect()
+        print(f"Subscribed to {self.subscription}")
         await self.subscribe(self.subscription)
         asyncio.create_task(self.receive_loop())
 
@@ -108,28 +109,49 @@ class SkylightServer(SimpleWebsocketServer):
 
     def setup_moonraker_client(self):
         """Setup Moonraker client"""
-        return SkylightClient(
+        client = SkylightClient(
             url=self.config_manager.moonraker_uri(),
             subscription={
                 "jsonrpc": "2.0",
                 "method": "printer.objects.subscribe",
                 "params": {
                     "objects": {
-                        "print_stat": None,
+                        "print_stats": ["state"],
                         "display_status": ["progress"],
                         "idle_timeout": ["state"],
                         "extruder": ["temperature", "target"],
                         "pause_resume": ["is_paused"]
                     }
                 },
-                "id": 2
+                "id": 5556
             },
             debug=self.debug
         )
+        
+        # Configure subscription validation
+        def moonraker_confirmation(response: dict) -> bool:
+            if response.get('jsonrpc') == '2.0':
+                if 'result' in response:
+                    return True
+                if 'error' in response:
+                    print(f"Subscription error: {response['error']}")
+            return False
+        
+        async def handle_notifications(msg: dict) -> None:
+            if 'method' in msg and msg['method'].startswith('notify_'):
+                # Handle Moonraker status update notifications
+                print(f"Received status update: {msg}")
+        
+        client.set_subscription_handlers(
+            confirmation_predicate=moonraker_confirmation,
+            notification_handler=handle_notifications
+        )
+        
+        return client
 
     def setup_skybox_client(self):
         """Setup Skybox client"""
-        return SkylightClient(
+        client = SkylightClient(
             url=self.config_manager.skybox_uri(),
             subscription={
                 "jsonrpc": "2.0",
@@ -144,6 +166,27 @@ class SkylightServer(SimpleWebsocketServer):
             },
             debug=self.debug
         )
+        
+        # Configure subscription validation
+        def skybox_confirmation(response: dict) -> bool:
+            if response.get('jsonrpc') == '2.0':
+                if 'result' in response and response['result'].get('status') == 'ok':
+                    return True
+                if 'error' in response:
+                    print(f"Subscription error: {response['error']}")
+            return False
+        
+        async def handle_notifications(msg: dict) -> None:
+            if 'method' in msg and msg['method'] == 'notify_data_update':
+                pass
+                # print(f"Received data update during subscribe: {msg}")
+        
+        client.set_subscription_handlers(
+            confirmation_predicate=skybox_confirmation,
+            notification_handler=handle_notifications
+        )
+        
+        return client
 
     def perform_initialization(self, config):
         """Initialize when first client connects"""
@@ -156,6 +199,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     async def handle_moonraker_update(self, data):
         """Handle updates from Moonraker"""
+        print(f"Moonraker data received: {data}")
         if 'result' in data and 'status' in data['result']:
             self.update_moonraker_state(data['result']['status'])
         elif 'params' in data and len(data['params']) > 0:
@@ -240,6 +284,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     def show_preset(self, name):
         """Display the preset scene on the Skylight system."""
+        print(f"Showing preset: {name}")
         format_data = self.current_state["preset_formats"].get(name, [])
         if format_data:
             self.current_state['skylight']['preset_scene'] = name
