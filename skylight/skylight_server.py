@@ -220,7 +220,6 @@ class SkylightServer(SimpleWebsocketServer):
 
     def update_moonraker_state(self, data):
         """Update the state of the Skylight system based on Moonraker messages."""
-        print(f"update_moonraker_state received data: {data}")
         try:
             if not isinstance(data, dict):
                 if self.debug:
@@ -246,11 +245,11 @@ class SkylightServer(SimpleWebsocketServer):
 
             # Update state with extracted values
             self.current_state["moonraker"].update({
-                "temperature": extruder_data.get("temperature", 25.0),
-                "target": extruder_data.get("target", 0.0),
-                "progress": display_data.get("progress", 0.0),
-                "state": idle_data.get("state", "none"),
-                "is_paused": pause_data.get("is_paused", False)
+                "temperature": extruder_data.get("temperature", self.current_state["moonraker"]["temperature"] or 0),
+                "target": extruder_data.get("target", self.current_state["moonraker"]["target"] or 0),
+                "progress": display_data.get("progress", self.current_state["moonraker"]["progress"] or 0),
+                "state": idle_data.get("state", self.current_state["moonraker"]["state"] or "none"),
+                "is_paused": pause_data.get("is_paused", self.current_state["moonraker"]["is_paused"] or False )
             })
 
             # Update LED state if enough time has passed
