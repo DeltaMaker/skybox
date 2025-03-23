@@ -127,15 +127,17 @@ class SimpleWebsocketClient:
         try:
             message = await self.ws.recv()
             return message
-        except websockets.exceptions.ConnectionClosed as e:
+        except websockets.exceptions.ConnectionClosed:
             self.connected = False
             self.subscribed = False
-            raise websockets.exceptions.ConnectionClosed(
-                e.code, e.reason
-            ) from e
+            if hasattr(self, 'debug') and self.debug:
+                print("WebSocket connection closed")
+            raise
         except Exception as e:
             self.connected = False
             self.subscribed = False
+            if hasattr(self, 'debug') and self.debug:
+                print(f"Receive error: {type(e).__name__}: {str(e)}")
             raise ConnectionError(f"Failed to receive message: {str(e)}")
 
     @property

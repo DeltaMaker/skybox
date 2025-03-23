@@ -30,17 +30,16 @@ class SkylightClient(SimpleWebsocketClient):
 
     async def receive_loop(self):
         """Continuously receive and process messages"""
-        try:
-            while True:
+        while True:
+            try:
                 message = await self.receive()
                 if isinstance(message, str):
                     data = json.loads(message)
                     if self.callback:
                         await self.callback(data)
                 await asyncio.sleep(0.1)
-        except Exception as e:
-            if self.debug:
-                print(f"Client receive error: {e}")
+            except:  # Any error will cause loop to exit
+                break
 
 class SkylightServer(SimpleWebsocketServer):
     def __init__(self, config_manager, host='0.0.0.0', debug=True):
