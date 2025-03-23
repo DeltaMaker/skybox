@@ -296,7 +296,7 @@ class SkylightServer(SimpleWebsocketServer):
                 self.last_update_time = time.time()
                 self.update_skylight_state()
                 # print(f"default_state = {default_state}")
-                # print(f"Moonraker state updated: {self.current_state['moonraker']}")
+                print(f"Moonraker state updated: {self.current_state['moonraker']}")
 
         except Exception as e:
             if self.debug:
