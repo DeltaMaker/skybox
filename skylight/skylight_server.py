@@ -22,24 +22,48 @@ class SkylightClient(SimpleWebsocketClient):
 
     async def start(self, callback):
         """Start client with callback for updates"""
+        if self.debug:
+            print(f"Starting SkylightClient connection to {self.url}")
         self.callback = callback
         await self.connect()
-        print(f"Subscribed to {self.subscription}")
+        print(f"Connected and subscribing with: {self.subscription}")
         await self.subscribe(self.subscription)
+        if self.debug:
+            print("Starting receive loop")
         asyncio.create_task(self.receive_loop())
 
     async def receive_loop(self):
         """Continuously receive and process messages"""
+        if self.debug:
+            print(f"Receive loop started for {self.url}")
         while True:
             try:
+                if not self.is_connected:
+                    if self.debug:
+                        print(f"Connection lost to {self.url}, attempting to reconnect...")
+                    await self.connect()
+                    if self.debug:
+                        print(f"Reconnected to {self.url}, resubscribing...")
+                    await self.subscribe(self.subscription)
+                
                 message = await self.receive()
                 if isinstance(message, str):
                     data = json.loads(message)
                     if self.callback:
                         await self.callback(data)
                 await asyncio.sleep(0.1)
-            except:  # Any error will cause loop to exit
-                break
+            except websockets.exceptions.ConnectionClosed as e:
+                if self.debug:
+                    print(f"WebSocket connection closed to {self.url}: code={e.code}, reason={e.reason}")
+                await asyncio.sleep(1.0)  # Wait before retry
+            except json.JSONDecodeError as e:
+                if self.debug:
+                    print(f"JSON decode error for message from {self.url}: {e}")
+                    print(f"Raw message: {message}")
+            except Exception as e:
+                if self.debug:
+                    print(f"Error in receive loop for {self.url}: {type(e).__name__}: {str(e)}")
+                await asyncio.sleep(1.0)  # Wait before retry
 
 class SkylightServer(SimpleWebsocketServer):
     def __init__(self, config_manager, host='0.0.0.0', debug=True):
@@ -99,6 +123,9 @@ class SkylightServer(SimpleWebsocketServer):
 
     def setup_moonraker_client(self):
         """Setup Moonraker client"""
+        if self.debug:
+            print(f"Setting up Moonraker client with URI: {self.config_manager.moonraker_uri()}")
+        
         client = SkylightClient(
             url=self.config_manager.moonraker_uri(),
             subscription={
@@ -120,6 +147,8 @@ class SkylightServer(SimpleWebsocketServer):
         
         # Configure subscription validation
         def moonraker_confirmation(response: dict) -> bool:
+            if self.debug:
+                print(f"Checking Moonraker subscription confirmation: {response}")
             if response.get('jsonrpc') == '2.0':
                 if 'result' in response:
                     if self.debug:
@@ -132,14 +161,23 @@ class SkylightServer(SimpleWebsocketServer):
         async def handle_notifications(msg: dict) -> None:
             # Only handle non-status-update notifications here
             # Status updates are handled by handle_moonraker_update
-            if 'method' in msg and msg['method'] != 'notify_status_update':
+            if 'method' in msg:
                 if self.debug:
-                    print(f"Moonraker notification: {msg['method']}")
+                    if msg['method'] != 'notify_status_update':
+                        print(f"Moonraker notification: {msg['method']}")
+                    else:
+                        print("Received status update notification")
+        
+        if self.debug:
+            print("Setting up Moonraker subscription handlers")
         
         client.set_subscription_handlers(
             confirmation_predicate=moonraker_confirmation,
             notification_handler=handle_notifications
         )
+        
+        if self.debug:
+            print("Moonraker client setup complete")
         
         return client
 
