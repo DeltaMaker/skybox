@@ -54,7 +54,7 @@ class SimpleWebsocketServer:
         """Hook to add custom routes for the WebSocket server."""
         pass
 
-    def start_clients(self):
+    async def start_clients(self):
         """Hook to start optional clients for the WebSocket server."""
         pass
 

@@ -119,10 +119,14 @@ class CameraServer(SimpleWebsocketServer):
         """Internal method that each camera type must implement."""
         raise NotImplementedError("Derived classes must implement _capture_frame")
 
+    def fastest_fps(self):
+        """Hook method to allow derived classes to override the FPS calculation."""
+        return max(client.get('fps', 1) for client in self.clients.values())
+
     async def get_broadcast_data(self):
         """Get the current frame and process it."""
         if self.clients:
-            fastest_fps = max(client.get('fps', 1) for client in self.clients.values())
+            fastest_fps = self.fastest_fps()
             target_interval = 1 / fastest_fps
             
             if self.debug:
@@ -146,7 +150,7 @@ class CameraServer(SimpleWebsocketServer):
         current_time = time.time()
         if current_time - self.last_fps_print >= 1.0:
             actual_fps = self.frame_count / (current_time - self.last_fps_print)
-            fastest_fps = max(client.get('fps', 1) for client in self.clients.values())
+            fastest_fps = self.fastest_fps()
             print(f"Target FPS: {fastest_fps:.1f}, Actual FPS: {actual_fps:.1f}")
             self.frame_count = 0
             self.last_fps_print = current_time
@@ -186,7 +190,7 @@ class CameraServer(SimpleWebsocketServer):
         if mirror:
             resized_frame = cv2.flip(resized_frame, 1)
 
-        marker_data = self.marker_tracker.process_frame(resized_frame)
+        marker_data = self.marker_tracker.process_frame(frame) # use original frame for marker tracking
         hand_data = self.hand_tracker.process_frame(resized_frame) if track_hands else []
 
         _, encoded_frame = cv2.imencode('.jpg', resized_frame)
@@ -286,6 +290,23 @@ class HTTPServer(CameraServer):
         np_arr = np.frombuffer(response.content, np.uint8)
         return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
+class StaticJPEGServer(CameraServer):
+    def __init__(self, jpeg_path, host='0.0.0.0', port=7160, debug=False):
+        self.jpeg_path = jpeg_path
+        super().__init__(host, port, debug)
+
+    def _setup_camera(self):
+        self.static_frame = cv2.imread(self.jpeg_path)  
+        if self.static_frame is None:
+            raise ValueError(f"Failed to read JPEG file: {self.jpeg_path}")
+        self.base_size =  self.base_size = (self.static_frame.shape[1], self.static_frame.shape[0])  # width, height
+
+    def fastest_fps(self):
+        """Set the FPS to 1 for static JPEG server."""
+        return 1
+
+    def _capture_frame(self):
+        return self.static_frame.copy()
 
 def main():
     """Run the OpenCV camera server with command line configuration."""
@@ -298,7 +319,8 @@ def main():
                       help="Camera device ID for OpenCV (default: 0)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
-    
+    parser.add_argument("--jpeg", type=str, default="vision_system/skycam0410-3.jpeg",
+                      help="Path to a static JPEG file to serve")
     args = parser.parse_args()
 
     # Configure logging
@@ -309,8 +331,18 @@ def main():
     )
 
     try:
-        logging.info(f"Starting OpenCV camera server on {args.host}:{args.port}")
-        server = OpenCVServer(
+        if args.jpeg:
+            logging.info(f"Starting Static JPEG server on {args.host}:{args.port}")
+            server = StaticJPEGServer(
+                jpeg_path=args.jpeg,
+                host=args.host,
+                port=args.port,
+                debug=args.debug
+            )
+            server.run()
+        else:
+            logging.info(f"Starting OpenCV camera server on {args.host}:{args.port}")
+            server = OpenCVServer(
             camera_id=args.camera,
             host=args.host,
             port=args.port,

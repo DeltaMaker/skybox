@@ -48,18 +48,33 @@ class CameraViewer:
         self.debug = debug
 
     def draw_markers(self, frame, markers):
-        """Draw detected markers on the frame."""
+        """Draw detected markers on the frame.
+        
+        Args:
+            frame: OpenCV image to draw on
+            markers: List of marker data with normalized coordinates (0-1)
+            
+        Returns:
+            Frame with markers drawn
+        """
         if not markers:
             return frame
         
+        height, width = frame.shape[:2]
+        
         for marker in markers:
-            corners = np.array(marker['corners']).reshape(4, 2).astype(np.int32)
+            # Convert normalized coordinates back to pixel coordinates
+            corners_norm = np.array(marker['corners']).reshape(4, 2)
+            corners = np.zeros_like(corners_norm)
+            corners[:, 0] = corners_norm[:, 0] * width  # x coordinates
+            corners[:, 1] = corners_norm[:, 1] * height  # y coordinates
+            corners = corners.astype(np.int32)
             
             cv2.polylines(frame, 
                          [corners.reshape(-1, 1, 2)],
                          isClosed=True,
                          color=(0, 255, 0),
-                         thickness=2)
+                         thickness=1)
             
             marker_id = str(marker.get('id', '-'))
             text_pos = (int(corners[0][0]), int(corners[0][1] - 10))

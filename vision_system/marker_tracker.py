@@ -35,16 +35,35 @@ class MarkerTracker:
         return camera_matrix, distortion_coeffs
 
     def process_frame(self, frame):
-        """Detect ARUCO markers in the frame."""
+        """Detect ARUCO markers in the frame and return normalized coordinates.
+        
+        Args:
+            frame: OpenCV image in BGR format
+            
+        Returns:
+            List of dictionaries containing marker data with normalized coordinates (0-1)
+            where (0,0) is top-left and (1,1) is bottom-right of the frame.
+            Coordinates are truncated to 4 decimal places.
+        """
+        height, width = frame.shape[:2]
+        print(f"Processing frame with size {width}x{height}")
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         self.corners, self.ids, _ = self.detector.detectMarkers(gray, self.aruco_dict)
         marker_data = []
 
         if self.ids is not None:
             for marker_id, marker_corners in zip(self.ids.flatten(), self.corners):
+                # Normalize corner coordinates and truncate to 4 decimal places
+                corners_array = marker_corners.flatten()
+                normalized_corners = []
+                for i in range(0, len(corners_array), 2):
+                    x = round(corners_array[i] / width, 4)
+                    y = round(corners_array[i + 1] / height, 4)
+                    normalized_corners.extend([x, y])
+                
                 marker_data.append({
                     "id": marker_id,
-                    "corners": marker_corners.flatten()
+                    "corners": normalized_corners
                 })
 
         return convert_numpy_types(marker_data)
