@@ -194,59 +194,29 @@ class SkylightServer(SimpleWebsocketServer):
 
     async def handle_moonraker_update(self, data):
         """Handle updates from Moonraker"""
-        if self.debug:
-            print("\n=== Moonraker Message Debug ===")
-            print(f"Raw message type: {type(data)}")
-            print(f"Raw message content: {data}")
-            
         try:
             if isinstance(data, dict):
-                print("\nMessage structure:")
-                print(f"Top-level keys: {list(data.keys())}")
-                
-                # Skip processing for gcode responses
-                if 'method' in data and data['method'] == 'notify_gcode_response':
-                    if self.debug:
-                        print("Skipping gcode response message")
-                    return
-                
-                if 'result' in data:
-                    print("Found 'result' key:")
-                    print(f"Result type: {type(data['result'])}")
-                    print(f"Result content: {data['result']}")
-                    
-                    if isinstance(data['result'], dict) and 'status' in data['result']:
-                        print("Processing result.status update")
-                        self.update_moonraker_state(data['result']['status'])
-                        
-                elif 'params' in data:
-                    print("Found 'params' key:")
-                    print(f"Params type: {type(data['params'])}")
-                    print(f"Params content: {data['params']}")
-                    
-                    if isinstance(data['params'], list) and len(data['params']) > 0:
-                        print("Processing params[0] update")
-                        self.update_moonraker_state(data['params'][0])
-                        
+                if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
+                    self.update_moonraker_state(data['result']['status'])
+                elif 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
+                    self.update_moonraker_state(data['params'][0])
                 elif 'method' in data and data['method'] == 'notify_status_update':
-                    print("Found notify_status_update:")
                     if 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
-                        print("Processing status update params[0]")
                         self.update_moonraker_state(data['params'][0])
                 else:
-                    print(f"Unhandled dict message format: {data}")
+                    if self.debug:
+                        print(f"Unhandled dict message format: {data}")
             else:
-                print(f"Received non-dict message type {type(data)}: {data}")
+                if self.debug:
+                    print(f"Received non-dict message type {type(data)}: {data}")
             
         except Exception as e:
-            print("\n=== Error Details ===")
-            print(f"Exception type: {type(e)}")
-            print(f"Error message: {str(e)}")
-            print(f"Message type: {type(data)}")
-            print(f"Message content: {data}")
-            if isinstance(data, dict):
-                print(f"Message keys: {list(data.keys())}")
-            print("========================\n")
+            if self.debug:
+                print(f"Error processing Moonraker update: {str(e)}")
+                print(f"Message type: {type(data)}")
+                print(f"Message content: {data}")
+                if isinstance(data, dict):
+                    print(f"Message keys: {data.keys()}")
 
     def update_moonraker_state(self, data):
         """Update the state of the Skylight system based on Moonraker messages."""
