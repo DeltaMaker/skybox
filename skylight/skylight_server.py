@@ -197,6 +197,7 @@ class SkylightServer(SimpleWebsocketServer):
         """Handle updates from Moonraker"""
         try:
             if isinstance(data, dict):
+                print(f"Moonraker update received: {data}")
                 if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
                     self.update_moonraker_state(data['result']['status'])
                 elif 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
