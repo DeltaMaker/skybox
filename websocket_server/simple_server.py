@@ -74,6 +74,7 @@ class SimpleWebsocketServer:
         host_ip = self.get_host_ip()
         print(f"Server started on ws://{host_ip}:{self.port} (WebSocket and HTTP)")
         print(f"Server status at http://{host_ip}:{self.port}/status")
+        print("Note: Server accepts non-SSL connections")
 
         await self.start_clients()
 
@@ -86,46 +87,58 @@ class SimpleWebsocketServer:
 
     async def websocket_handler(self, request):
         """Handle client subscriptions for periodic broadcast."""
-        ws = web.WebSocketResponse(heartbeat=10)
-        await ws.prepare(request)
-
         try:
-            # Receive client subscription settings
-            config_message = await ws.receive()
+            ws = web.WebSocketResponse(heartbeat=10)
+            await ws.prepare(request)
 
-            if config_message.type == web.WSMsgType.TEXT:
-                config = json.loads(config_message.data)
-                client_info = self.extract_client_info(config)
+            try:
+                # Receive client subscription settings
+                config_message = await ws.receive()
 
-                # Start processing when the first client connects
-                if not self.running:
-                    self.start_processing(client_info) 
-                    self.running = True
+                if config_message.type == web.WSMsgType.TEXT:
+                    config = json.loads(config_message.data)
+                    client_info = self.extract_client_info(config)
 
-                # Add client to the list with their settings
-                self.clients[ws] = client_info
+                    # Start processing when the first client connects
+                    if not self.running:
+                        self.start_processing(client_info) 
+                        self.running = True
 
-                # Send subscription confirmation to the client
-                confirmation_message = {'status': 'subscribed', **client_info}
-                await ws.send_str(json.dumps(confirmation_message))
+                    # Add client to the list with their settings
+                    self.clients[ws] = client_info
 
-                # Keep the connection alive and handle incoming messages
-                try:
-                    async for msg in ws:
-                        if msg.type == web.WSMsgType.ERROR:
-                            print(f'WebSocket connection closed with exception {ws.exception()}')
-                            break
-                        elif msg.type == web.WSMsgType.CLOSE:
-                            print('WebSocket connection closed normally')
-                            break
-                finally:
-                    if ws in self.clients:
-                        del self.clients[ws]
-                    if not self.clients:
-                        self.stop_processing()
+                    # Send subscription confirmation to the client
+                    confirmation_message = {'status': 'subscribed', **client_info}
+                    await ws.send_str(json.dumps(confirmation_message))
 
+                    # Keep the connection alive and handle incoming messages
+                    try:
+                        async for msg in ws:
+                            if msg.type == web.WSMsgType.ERROR:
+                                print(f'WebSocket connection closed with exception {ws.exception()}')
+                                break
+                            elif msg.type == web.WSMsgType.CLOSE:
+                                print('WebSocket connection closed normally')
+                                break
+                    finally:
+                        if ws in self.clients:
+                            del self.clients[ws]
+                        if not self.clients:
+                            self.stop_processing()
+
+            except Exception as e:
+                if "SSL" in str(e) or "TLS" in str(e):
+                    logging.info(f"SSL/TLS related error: {e}. Client may be using non-SSL connection.")
+                else:
+                    logging.error(f"Error in websocket handler: {e}")
+                if not ws.closed:
+                    await ws.close()
+            
         except Exception as e:
-            logging.error(f"Error in websocket handler: {e}")
+            if "SSL" in str(e) or "TLS" in str(e):
+                logging.info(f"SSL/TLS handshake error: {e}. Client may be using non-SSL connection.")
+            else:
+                logging.error(f"Error preparing websocket: {e}")
         
         return ws
 
