@@ -107,10 +107,10 @@ class SkylightServer(SimpleWebsocketServer):
                 "method": "printer.objects.subscribe",
                 "params": {
                     "objects": {
-                        "print_stats": ["state"],
+                        "print_stats": None,  # ["state"],
                         "display_status": ["progress"],
                         "idle_timeout": ["state"],
-                        "extruder": None,  # ["temperature", "target"],
+                        "extruder": ["temperature", "target"],
                         "pause_resume": ["is_paused"]
                     }
                 },
