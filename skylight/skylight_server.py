@@ -197,10 +197,21 @@ class SkylightServer(SimpleWebsocketServer):
         if self.debug:
             print(f"Moonraker status update received")
         
-        if 'result' in data and 'status' in data['result']:
-            self.update_moonraker_state(data['result']['status'])
-        elif 'params' in data and len(data['params']) > 0:
-            self.update_moonraker_state(data['params'][0])
+        try:
+            if isinstance(data, dict):
+                if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
+                    self.update_moonraker_state(data['result']['status'])
+                elif 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
+                    self.update_moonraker_state(data['params'][0])
+                elif 'method' in data and data['method'] == 'notify_status_update':
+                    if 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
+                        self.update_moonraker_state(data['params'][0])
+            else:
+                if self.debug:
+                    print(f"Received non-dict message: {data}")
+        except Exception as e:
+            if self.debug:
+                print(f"Error processing Moonraker update: {e}")
 
     def update_moonraker_state(self, data):
         """Update the state of the Skylight system based on Moonraker messages."""
