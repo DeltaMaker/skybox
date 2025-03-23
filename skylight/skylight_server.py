@@ -18,28 +18,9 @@ class SkylightClient(SimpleWebsocketClient):
         super().__init__(url)
         self.subscription = subscription
         self.debug = debug
-        self.callback = None
 
-    async def start(self, callback):
-        """Start client with callback for updates"""
-        self.callback = callback
-        await self.connect()
-        print(f"Subscribed to {self.subscription}")
-        await self.subscribe(self.subscription)
-        asyncio.create_task(self.receive_loop())
-
-    async def receive_loop(self):
-        """Continuously receive and process messages"""
-        while True:
-            try:
-                message = await self.receive()
-                if isinstance(message, str):
-                    data = json.loads(message)
-                    if self.callback:
-                        await self.callback(data)
-                await asyncio.sleep(0.1)
-            except:  # Any error will cause loop to exit
-                break
+    def __str__(self):
+        return f"SkylightClient({self.url})"
 
 class SkylightServer(SimpleWebsocketServer):
     def __init__(self, config_manager, host='0.0.0.0', debug=True):

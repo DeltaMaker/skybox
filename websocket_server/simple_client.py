@@ -27,6 +27,8 @@ class SimpleWebsocketClient:
         self.max_retries = 5
         self.retry_delay = 1.0  # Start with 1 second delay
         self.running = True  # Flag to control the receive loop
+        self.subscription = None  # Store subscription config
+        self.callback = None  # Store message callback
         
         # Default subscription handlers
         self._subscription_predicate = lambda resp: resp.get('status') == 'subscribed'
@@ -44,12 +46,13 @@ class SimpleWebsocketClient:
         self._subscription_predicate = confirmation_predicate
         self._notification_handler = notification_handler
 
-    async def start(self, callback):
-        """Start client with callback for updates"""
+    async def start(self, callback, subscription: Dict[str, Any] = None):
+        """Start client with callback for updates and optional subscription."""
         self.callback = callback
+        self.subscription = subscription
         await self.connect()
-        if self.debug:
-            print(f"Starting receive loop for {self.url}")
+        if self.subscription:
+            await self.subscribe(self.subscription)
         asyncio.create_task(self.receive_loop())
 
     async def receive_loop(self):
@@ -57,13 +60,13 @@ class SimpleWebsocketClient:
         while self.running:
             try:
                 if not self.is_connected:
-                    if self.debug:
+                    if hasattr(self, 'debug') and self.debug:
                         print(f"Attempting to reconnect to {self.url}")
                     await self.connect()
                     if self.subscription:
                         await self.subscribe(self.subscription)
                 
-                while self.is_connected:
+                while self.is_connected and self.running:
                     message = await self.receive()
                     if isinstance(message, str):
                         data = json.loads(message)
@@ -72,11 +75,15 @@ class SimpleWebsocketClient:
                     await asyncio.sleep(0.1)
                     
             except websockets.exceptions.ConnectionClosed:
-                if self.debug:
+                if hasattr(self, 'debug') and self.debug:
                     print(f"Connection to {self.url} closed, will retry...")
+                self.connected = False
+                self.subscribed = False
             except Exception as e:
-                if self.debug:
+                if hasattr(self, 'debug') and self.debug:
                     print(f"Error in receive loop: {type(e).__name__}: {str(e)}")
+                self.connected = False
+                self.subscribed = False
             
             # Wait before attempting to reconnect
             if self.running:
