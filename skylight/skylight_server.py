@@ -271,7 +271,10 @@ class SkylightServer(SimpleWebsocketServer):
     def update_skylight_state(self):
         """Determine the state of the Skylight system and update LED patterns."""
         preset_scene, percent = self.determine_mode()
-        if preset_scene != self.current_state['skylight']['preset_scene']:
+        default_state = self.current_state["skylight"]
+        print(f"preset_scene = {preset_scene}")
+        print(f"default_state = {default_state}")
+        if preset_scene != default_state['preset_scene']:
             self.current_state['skylight']['preset_scene'] = preset_scene
             formats = self.current_state["preset_formats"].get(preset_scene, [])
             self.set_scene_format(formats)
