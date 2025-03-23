@@ -244,18 +244,21 @@ class SkylightServer(SimpleWebsocketServer):
                 pause_data = {}
 
             # Update state with extracted values
+            default_state = self.current_state["moonraker"]
+
             self.current_state["moonraker"].update({
-                "temperature": extruder_data.get("temperature", self.current_state["moonraker"]["temperature"] or 0),
-                "target": extruder_data.get("target", self.current_state["moonraker"]["target"] or 0),
-                "progress": display_data.get("progress", self.current_state["moonraker"]["progress"] or 0),
-                "state": idle_data.get("state", self.current_state["moonraker"]["state"] or "none"),
-                "is_paused": pause_data.get("is_paused", self.current_state["moonraker"]["is_paused"] or False )
+                "temperature": extruder_data.get("temperature", default_state["temperature"]),
+                "target": extruder_data.get("target", default_state["target"]),
+                "progress": display_data.get("progress", default_state["progress"]),
+                "state": idle_data.get("state", default_state["state"]),
+                "is_paused": pause_data.get("is_paused", default_state["is_paused"])
             })
 
             # Update LED state if enough time has passed
             if time.time() - self.last_update_time > self.current_state["update_interval"]:
                 self.last_update_time = time.time()
                 self.update_skylight_state()
+                print(f"default_state = {default_state}")
                 print(f"Moonraker state updated: {self.current_state['moonraker']}")
 
         except Exception as e:
