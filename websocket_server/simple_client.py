@@ -101,17 +101,19 @@ class SimpleWebsocketClient:
             try:
                 self.ws = await websockets.connect(
                     self.url,
-                    ping_interval=10,
-                    ping_timeout=30
+                    ping_interval=30,  # Increased from 10
+                    ping_timeout=60,   # Increased from 30
+                    close_timeout=30,  # Added explicit close timeout
+                    max_size=10 * 1024 * 1024  # 10MB max message size
                 )
                 self.connected = True
-                if self.debug:
-                    print(f"Successfully connected to {self.url}")
+                if hasattr(self, 'debug') and self.debug:
+                    print(f"Successfully connected to {self.url} with ping_interval=30s, ping_timeout=60s")
                 return
             except Exception as e:
                 retries += 1
                 if retries < self.max_retries and self.running:
-                    if self.debug:
+                    if hasattr(self, 'debug') and self.debug:
                         print(f"Connection attempt {retries} failed: {str(e)}")
                     await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
                 else:

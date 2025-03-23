@@ -18,6 +18,7 @@ class SkylightClient(SimpleWebsocketClient):
         super().__init__(url)
         self.subscription = subscription
         self.debug = debug
+        self.last_state = None  # Track last known state
 
     async def start(self, callback):
         """Start client with callback for updates"""
@@ -35,25 +36,43 @@ class SkylightClient(SimpleWebsocketClient):
         """Continuously receive and process messages"""
         if self.debug:
             print(f"Receive loop started for {self.url}")
+        disconnect_time = None
+        
         while True:
             try:
                 if not self.is_connected:
+                    if disconnect_time is None:
+                        disconnect_time = time.time()
+                        if self.debug:
+                            print(f"Connection lost to {self.url} at {time.strftime('%H:%M:%S')}")
+                    
                     if self.debug:
-                        print(f"Connection lost to {self.url}, attempting to reconnect...")
+                        elapsed = time.time() - disconnect_time
+                        print(f"Connection has been down for {elapsed:.1f}s, attempting to reconnect...")
+                    
                     await self.connect()
                     if self.debug:
-                        print(f"Reconnected to {self.url}, resubscribing...")
+                        print(f"Reconnected to {self.url} after {time.time() - disconnect_time:.1f}s downtime")
+                    disconnect_time = None
                     await self.subscribe(self.subscription)
                 
                 message = await self.receive()
                 if isinstance(message, str):
                     data = json.loads(message)
                     if self.callback:
+                        # Track state changes
+                        if self.debug and isinstance(data, dict):
+                            if 'params' in data and isinstance(data['params'], list) and data['params']:
+                                new_state = data['params'][0]
+                                if self.last_state != new_state:
+                                    print(f"State changed from {self.last_state} to {new_state}")
+                                    self.last_state = new_state
                         await self.callback(data)
                 await asyncio.sleep(0.1)
             except websockets.exceptions.ConnectionClosed as e:
                 if self.debug:
                     print(f"WebSocket connection closed to {self.url}: code={e.code}, reason={e.reason}")
+                    print(f"Last known state: {self.last_state}")
                 await asyncio.sleep(1.0)  # Wait before retry
             except json.JSONDecodeError as e:
                 if self.debug:
