@@ -319,7 +319,7 @@ def main():
                       help="Camera device ID for OpenCV (default: 0)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
-    parser.add_argument("--jpeg", type=str, default="vision_system/skycam0410-3.jpeg",
+    parser.add_argument("--jpeg", type=str, default=None,
                       help="Path to a static JPEG file to serve")
     args = parser.parse_args()
 

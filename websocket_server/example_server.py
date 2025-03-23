@@ -8,7 +8,7 @@ that broadcasts random data to connected clients.
 import asyncio
 import random
 import json
-from websocket_server.simple_server import SimpleWebsocketServer
+from simple_server import SimpleWebsocketServer
 
 class ExampleServer(SimpleWebsocketServer):
     def __init__(self, host='0.0.0.0', port=7170, debug=False):

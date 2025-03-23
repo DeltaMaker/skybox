@@ -7,7 +7,7 @@ that connects to the example server and processes messages.
 
 import asyncio
 import json
-from websocket_server.simple_client import SimpleWebsocketClient
+from simple_client import SimpleWebsocketClient
 
 class ExampleClient:
     def __init__(self, uri="ws://localhost:7170/websocket", debug=False):

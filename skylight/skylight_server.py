@@ -1,88 +1,73 @@
 import sys
 import os
-# Add the root directory of your project to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import time
 import asyncio
-from aiohttp import web
+import json
 import websockets
-from websocket_server.base_websocket_server import BaseWebSocketServer
-from websocket_server.websocket_client_mixin import WebSocketClientMixin
+from aiohttp import web
+from websocket_server.simple_server import SimpleWebsocketServer
+from websocket_server.simple_client import SimpleWebsocketClient
 from skylight.led_controller import LEDController
 from config.config_manager import ConfigManager
-import json
-from typing import Dict
 
-class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
-    def __init__(self, config_manager, host='0.0.0.0'):
-        """
-        Initialize the SkylightServer.
-        :param config_manager: Configuration manager to retrieve settings.
-        :param host: The host address for the WebSocket server.
-        """
-        # Initialize the server part (WebSocket and HTTP server)
-        skylight_port = config_manager.getint('skylight', 'skylight_port', 7120)
-        debug = config_manager.getboolean('skylight', 'debug', True)
-        BaseWebSocketServer.__init__(self, host, skylight_port, debug)
+class SkylightClient(SimpleWebsocketClient):
+    """Client for connecting to external services (Moonraker, Skybox)"""
+    def __init__(self, url: str, subscription: dict, debug: bool = False):
+        super().__init__(url)
+        self.subscription = subscription
+        self.debug = debug
+        self.callback = None
 
-        # Initialize the WebSocket client mixin with connections
-        connections = {
-            'moonraker': {
-                'uri': config_manager.moonraker_uri(),
-                'root': 'moonraker',
-                'connected': False,
-                'subscription': {
-                    "jsonrpc": "2.0",
-                    "method": "printer.objects.subscribe",
-                    "params": {
-                        "objects": {
-                            "print_stat": None,
-                            "display_status": ["progress"],
-                            "idle_timeout": ["state"],
-                            "extruder": ["temperature", "target"],
-                            "pause_resume": ["is_paused"]
-                        }
-                    },
-                    "id": 2
-                }
-            },
-            'skybox': {
-                'uri': config_manager.skybox_uri(),
-                'root': 'skybox',
-                'connected': False,
-                'subscription': {
-                    "jsonrpc": "2.0",
-                    "method": "subscribe",
-                    "params": {
-                        "objects": {
-                            "data_fields": None,
-                            "data_values": None,
-                        }
-                    },
-                    "id": 3
-                }
-            } 
-        }
-        print(f"Connections: {connections}")
-        # Initialize the WebSocket client mixin with connections
-        WebSocketClientMixin.__init__(self, connections, debug=False)
+    async def start(self, callback):
+        """Start client with callback for updates"""
+        self.callback = callback
+        await self.connect()
+        print(f"Subscribed to {self.subscription}")
+        await self.subscribe(self.subscription)
+        asyncio.create_task(self.receive_loop())
 
-        # Other Skylight-specific initializations
+    async def receive_loop(self):
+        """Continuously receive and process messages"""
+        try:
+            while True:
+                message = await self.receive()
+                if isinstance(message, str):
+                    data = json.loads(message)
+                    if self.callback:
+                        await self.callback(data)
+                await asyncio.sleep(0.1)
+        except Exception as e:
+            if self.debug:
+                print(f"Client receive error: {e}")
+
+class SkylightServer(SimpleWebsocketServer):
+    def __init__(self, config_manager, host='0.0.0.0', debug=True):
+        # Initialize server
+        port = config_manager.getint('skylight', 'skylight_port', 7120)
+        super().__init__(host=host, port=port, debug=debug)
+        
         self.config_manager = config_manager
+        self.debug = debug
+        
+        # Initialize LED controller
         led_count = config_manager.getint('skylight', 'led_count', 30)
-        update_interval = config_manager.getint('skylight', 'update_interval', 2)
+        self.update_interval = config_manager.getint('skylight', 'update_interval', 2)
         self.last_update_time = 0
-        self.current_state = self.initialize_current_state(led_count, update_interval)
+        self.current_state = self.initialize_current_state(led_count, self.update_interval)
         self.led_controller = LEDController(led_count)
+        
+        # Initialize clients
+        self.moonraker_client = self.setup_moonraker_client()
+        # self.skybox_client = self.setup_skybox_client()
+        
+        # Start with rainbow preset
         self.show_preset("rainbow")
 
+
     def initialize_current_state(self, led_count, update_interval):
-        """
-        Initialize the current state of the Skylight system.
-        :param led_count: Number of LEDs in the Skylight.
-        :param update_interval: Interval for updates.
-        :return: Initial state dictionary.
-        """
+        """Initialize the current state of the Skylight system."""
         return {
             "update_interval": update_interval,
             "scene": {},
@@ -113,24 +98,112 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             }
         }
 
-    async def handle_client_update(self, root: str, updated_objects: Dict) -> None:
-        """
-        Handle updates from WebSocket services.
-        :param root: The root of the service being updated.
-        :param updated_objects: The objects that were updated.
-        """
-        if root == 'moonraker':
-            self.update_moonraker_state(updated_objects)
-        elif root == 'skybox':
-            print(f"Skybox data received: {updated_objects}")
-        else:
-            print(f"Unhandled message from {root}: {updated_objects}")
+    def setup_moonraker_client(self):
+        """Setup Moonraker client"""
+        client = SkylightClient(
+            url=self.config_manager.moonraker_uri(),
+            subscription={
+                "jsonrpc": "2.0",
+                "method": "printer.objects.subscribe",
+                "params": {
+                    "objects": {
+                        "print_stats": ["state"],
+                        "display_status": ["progress"],
+                        "idle_timeout": ["state"],
+                        "extruder": ["temperature", "target"],
+                        "pause_resume": ["is_paused"]
+                    }
+                },
+                "id": 5556
+            },
+            debug=self.debug
+        )
+        
+        # Configure subscription validation
+        def moonraker_confirmation(response: dict) -> bool:
+            if response.get('jsonrpc') == '2.0':
+                if 'result' in response:
+                    if self.debug:
+                        print("Moonraker subscription confirmed")
+                    return True
+                if 'error' in response:
+                    print(f"Subscription error: {response['error']}")
+            return False
+        
+        async def handle_notifications(msg: dict) -> None:
+            # Only handle non-status-update notifications here
+            # Status updates are handled by handle_moonraker_update
+            if 'method' in msg and msg['method'] != 'notify_status_update':
+                if self.debug:
+                    print(f"Moonraker notification: {msg['method']}")
+        
+        client.set_subscription_handlers(
+            confirmation_predicate=moonraker_confirmation,
+            notification_handler=handle_notifications
+        )
+        
+        return client
+
+    def setup_skybox_client(self):
+        """Setup Skybox client"""
+        client = SkylightClient(
+            url=self.config_manager.skybox_uri(),
+            subscription={
+                "jsonrpc": "2.0",
+                "method": "subscribe",
+                "params": {
+                    "objects": {
+                        "data_fields": None,
+                        "data_values": None,
+                    }
+                },
+                "id": 3
+            },
+            debug=self.debug
+        )
+        
+        # Configure subscription validation
+        def skybox_confirmation(response: dict) -> bool:
+            if response.get('jsonrpc') == '2.0':
+                if 'result' in response and response['result'].get('status') == 'ok':
+                    return True
+                if 'error' in response:
+                    print(f"Subscription error: {response['error']}")
+            return False
+        
+        async def handle_notifications(msg: dict) -> None:
+            if 'method' in msg and msg['method'] == 'notify_data_update':
+                pass
+                # print(f"Received data update during subscribe: {msg}")
+        
+        client.set_subscription_handlers(
+            confirmation_predicate=skybox_confirmation,
+            notification_handler=handle_notifications
+        )
+        
+        return client
+
+    def perform_initialization(self, config):
+        """Initialize when first client connects"""
+        pass  # Client connections are now started in start_server
+
+    async def start_clients(self):
+        """Start all client connections"""
+        await self.moonraker_client.start(self.handle_moonraker_update)
+        # await self.skybox_client.start(self.handle_skybox_update)
+
+    async def handle_moonraker_update(self, data):
+        """Handle updates from Moonraker"""
+        if self.debug:
+            print(f"Moonraker status update received")
+        
+        if 'result' in data and 'status' in data['result']:
+            self.update_moonraker_state(data['result']['status'])
+        elif 'params' in data and len(data['params']) > 0:
+            self.update_moonraker_state(data['params'][0])
 
     def update_moonraker_state(self, data):
-        """
-        Update the state of the Skylight system based on Moonraker messages.
-        :param data: Data received from Moonraker WebSocket.
-        """
+        """Update the state of the Skylight system based on Moonraker messages."""
         self.current_state["moonraker"]["temperature"] = data.get("extruder", {}).get("temperature", 25.0)
         self.current_state["moonraker"]["target"] = data.get("extruder", {}).get("target", 0.0)
         self.current_state["moonraker"]["progress"] = data.get("display_status", {}).get("progress", 0.0)
@@ -142,9 +215,7 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             self.update_skylight_state()
 
     def update_skylight_state(self):
-        """
-        Determine the state of the Skylight system and update LED patterns.
-        """
+        """Determine the state of the Skylight system and update LED patterns."""
         preset_scene, percent = self.determine_mode()
         if preset_scene != self.current_state['skylight']['preset_scene']:
             self.current_state['skylight']['preset_scene'] = preset_scene
@@ -154,10 +225,7 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             self.set_scene_values(percent)
 
     def determine_mode(self):
-        """
-        Determine the current mode of the Skylight system based on the Moonraker state.
-        :return: A tuple containing the scene name and the percent value.
-        """
+        """Determine the current mode of the Skylight system based on the Moonraker state."""
         heater_on = self.current_state["moonraker"]["target"] > 0
         warming_up = heater_on and (
                 self.current_state["moonraker"]["target"] - self.current_state["moonraker"]["temperature"] > 2)
@@ -181,31 +249,53 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             return "idle", 0
         return "rainbow", 0
 
+    async def handle_skybox_update(self, data):
+        """Handle updates from Skybox"""
+        if self.debug:
+            print(f"Skybox data received: {data}")
+
+    def extract_client_info(self, config):
+        """Extract client configuration"""
+        return {
+            'type': config.get('type', 'web'),
+            'name': config.get('name', 'unknown')
+        }
+
+    async def get_broadcast_data(self):
+        """Get current state for broadcasting"""
+        return {
+            'timestamp': time.time(),
+            'state': self.current_state
+        }
+
+    async def format_client_message(self, message_data, client_info):
+        """Format message for specific client"""
+        return {
+            'data': message_data['state']
+        }
+
+    async def send_to_client(self, client_ws, message):
+        """Send formatted message to client"""
+        if not client_ws.closed:
+            await client_ws.send_str(json.dumps(message))
+
     def show_preset(self, name):
-        """
-        Display the preset scene on the Skylight system.
-        :param name: The name of the preset scene.
-        """
+        """Display the preset scene on the Skylight system."""
+        print(f"Showing preset: {name}")
         format_data = self.current_state["preset_formats"].get(name, [])
         if format_data:
             self.current_state['skylight']['preset_scene'] = name
             self.set_scene_format(format_data)
 
     def set_scene_format(self, formats):
-        """
-        Set the LED controller to the specified format.
-        :param formats: The scene format for the LED controller.
-        """
+        """Set the LED controller to the specified format."""
         self.current_state["scene"] = formats
         if self.debug:
             print(f"formats = {formats}")
         self.led_controller.set_data_fields(formats)
 
     def set_scene_values(self, values):
-        """
-        Set the LED controller to the specified values.
-        :param values: The values for the LED controller.
-        """
+        """Set the LED controller to the specified values."""
         if self.debug:
             print(f"values = {values}")
         formats = self.current_state["scene"]
@@ -218,18 +308,46 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
 
         self.led_controller.set_data_values(values)
 
+    def set_brightness(self, brightness):
+        """Set the brightness of the LED system."""
+        self.current_state["skylight"]["brightness"] = brightness
+        percent = brightness / 256 if brightness < 256 else 1.0
+        self.led_controller.set_brightness(percent)
+
+    async def send_led_overlay(self):
+        """Continuously send the defined shapes (overlays) to an external WebSocket server."""
+        try:
+            # Get the WebSocket URI from the config manager
+            uri = self.config_manager.get('skylight', 'websocket_uri', fallback='ws://localhost:7130/websocket')
+            while self.running:
+                try:
+                    async with websockets.connect(uri) as websocket:
+                        while self.running:
+                            try:
+                                color_strip = self.led_controller.get_overlay_shapes()
+                                message_json = json.dumps({"overlay": color_strip})
+                                if self.debug:
+                                    print(f"Sending overlay to {uri}: {message_json}")
+                                await websocket.send(message_json)
+                                await asyncio.sleep(1.0)
+                            except Exception as e:
+                                if self.debug:
+                                    print(f"Error sending overlay: {e}")
+                                break  # Break out of the inner loop on error
+                except Exception as e:
+                    if self.debug:
+                        print(f"Error connecting to WebSocket server at {uri}: {e}")
+                    await asyncio.sleep(5.0)  # Wait before retrying
+        except Exception as e:
+            if self.debug:
+                print(f"LED overlay task error: {e}")
+
     def add_custom_routes(self, router):
-        """
-        Add custom routes for the Skylight server.
-        :param router: The aiohttp router object.
-        """
+        """Add custom routes for the Skylight server."""
         router.add_route('*', '/skylight/{tail:.*}', self.process_skylight_command)
 
     async def process_skylight_command(self, request):
-        """
-        Process Skylight control commands (e.g., brightness, actions, etc.).
-        :param request: The aiohttp web request.
-        """
+        """Process Skylight control commands (e.g., brightness, actions, etc.)."""
         path = request.path
         query_params = request.query
         post_params = {}
@@ -278,63 +396,19 @@ class SkylightServer(BaseWebSocketServer, WebSocketClientMixin):
             status=404
         )
 
-    def set_brightness(self, brightness):
-        """
-        Set the brightness of the LED system.
-        :param brightness: The brightness value to set.
-        """
-        self.current_state["skylight"]["brightness"] = brightness
-        percent = brightness / 256 if brightness < 256 else 1.0
-        self.led_controller.set_brightness(percent)
+    def perform_cleanup(self):
+        """Cleanup when server stops"""
+        asyncio.create_task(self.cleanup())
 
-    async def send_led_overlay(self):
-        """
-        Continuously send the defined shapes (overlays) to an external WebSocket server.
-        """
+    async def cleanup(self):
+        """Cleanup when server stops"""
         try:
-            # Get the WebSocket URI from the config manager
-            uri = self.config_manager.get('skylight', 'websocket_uri', fallback='ws://localhost:7130/websocket')
-            async with websockets.connect(uri) as websocket:
-                while True:
-                    try:
-                        color_strip = self.led_controller.get_overlay_shapes()
-                        message_json = json.dumps({"overlay": color_strip})
-                        if self.debug:
-                            print(f"Sending overlay to {uri}: {message_json}")
-                        await websocket.send(message_json)
-                        await asyncio.sleep(1.0)
-                    except Exception as e:
-                        if self.debug:
-                            print(f"Error sending overlay: {e}")
-                        break  # Break out of the loop on error
+            await self.moonraker_client.disconnect()
+            # await self.skybox_client.disconnect()
+            self.led_controller.cleanup()
         except Exception as e:
             if self.debug:
-                print(f"Error connecting to WebSocket server at {uri}: {e}")
-
-    async def start_background_tasks(self, app) -> None:
-        """
-        Start background tasks such as WebSocket connections.
-        :param app: The aiohttp web app.
-        """
-        if self.debug:
-            print("Starting Skylight background tasks...")
-        self.running = True
-        
-        # Start client connections
-        await self.start_client()
-        
-        # Start LED overlay task
-        asyncio.create_task(self.send_led_overlay())
-
-    async def cleanup_background_tasks(self, app) -> None:
-        """
-        Clean up background tasks when shutting down.
-        :param app: The aiohttp web app.
-        """
-        if self.debug:
-            print("Cleaning up Skylight background tasks...")
-        self.running = False
-        await self.stop_client()
+                print(f"Cleanup error: {e}")
 
 def main():
     # Update config path to use absolute path
@@ -342,9 +416,14 @@ def main():
     config_dir = os.path.join(os.path.dirname(current_dir), 'config')
     print(f"Config directory: {config_dir}")
     config_manager = ConfigManager(config_file="localhost.conf", config_dir=config_dir)
-
-    skylight_server = SkylightServer(config_manager)
-    skylight_server.start()
+    
+    # Explicitly set debug=True
+    server = SkylightServer(config_manager, debug=True)
+    
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        print("\nShutting down server...")
 
 if __name__ == "__main__":
-    main()
+    main() 
