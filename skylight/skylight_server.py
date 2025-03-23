@@ -131,6 +131,7 @@ class SkylightServer(SimpleWebsocketServer):
             return False
         
         async def handle_notifications(msg: dict) -> None:
+            print(f"Moonraker notification: {msg['method']}")
             # Only handle non-status-update notifications here
             # Status updates are handled by handle_moonraker_update
             if 'method' in msg and msg['method'] != 'notify_status_update':
