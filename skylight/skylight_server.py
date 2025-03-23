@@ -18,7 +18,6 @@ class SkylightClient(SimpleWebsocketClient):
         super().__init__(url)
         self.subscription = subscription
         self.debug = debug
-        self.callback = None
 
     async def start(self, callback):
         """Start client with callback for updates"""
