@@ -114,7 +114,7 @@ class SkylightServer(SimpleWebsocketServer):
                         "pause_resume": ["is_paused"]
                     }
                 },
-                "id": 5556
+                "id": 2 
             },
             debug=self.debug
         )
@@ -196,7 +196,6 @@ class SkylightServer(SimpleWebsocketServer):
         """Handle updates from Moonraker"""
         try:
             if isinstance(data, dict):
-                print(f"Moonraker update received: {data}")
                 if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
                     self.update_moonraker_state(data['result']['status'])
                 elif 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
@@ -221,6 +220,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     def update_moonraker_state(self, data):
         """Update the state of the Skylight system based on Moonraker messages."""
+        print(f"update_moonraker_state received data: {data}")
         try:
             if not isinstance(data, dict):
                 if self.debug:
@@ -257,6 +257,7 @@ class SkylightServer(SimpleWebsocketServer):
             if time.time() - self.last_update_time > self.current_state["update_interval"]:
                 self.last_update_time = time.time()
                 self.update_skylight_state()
+                print(f"Moonraker state updated: {self.current_state['moonraker']}")
 
         except Exception as e:
             if self.debug:
