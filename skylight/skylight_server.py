@@ -204,6 +204,12 @@ class SkylightServer(SimpleWebsocketServer):
                 print("\nMessage structure:")
                 print(f"Top-level keys: {list(data.keys())}")
                 
+                # Skip processing for gcode responses
+                if 'method' in data and data['method'] == 'notify_gcode_response':
+                    if self.debug:
+                        print("Skipping gcode response message")
+                    return
+                
                 if 'result' in data:
                     print("Found 'result' key:")
                     print(f"Result type: {type(data['result'])}")
