@@ -208,7 +208,8 @@ class SkylightServer(SimpleWebsocketServer):
                         print(f"Unhandled dict message format: {data}")
             else:
                 if self.debug:
-                    print(f"Received non-dict message type {type(data)}: {data}")
+                    pass
+                    # print(f"Received non-dict message type {type(data)}: {data}")
             
         except Exception as e:
             if self.debug:
@@ -223,7 +224,8 @@ class SkylightServer(SimpleWebsocketServer):
         try:
             if not isinstance(data, dict):
                 if self.debug:
-                    print(f"update_moonraker_state received non-dict data: {type(data)} - {data}")
+                    pass
+                    # print(f"update_moonraker_state received non-dict data: {type(data)} - {data}")
                 return
 
             # Extract values with better error handling
@@ -245,7 +247,6 @@ class SkylightServer(SimpleWebsocketServer):
 
             # Update state with extracted values
             default_state = self.current_state["moonraker"]
-
             self.current_state["moonraker"].update({
                 "temperature": extruder_data.get("temperature", default_state["temperature"]),
                 "target": extruder_data.get("target", default_state["target"]),
@@ -258,8 +259,8 @@ class SkylightServer(SimpleWebsocketServer):
             if time.time() - self.last_update_time > self.current_state["update_interval"]:
                 self.last_update_time = time.time()
                 self.update_skylight_state()
-                print(f"default_state = {default_state}")
-                print(f"Moonraker state updated: {self.current_state['moonraker']}")
+                # print(f"default_state = {default_state}")
+                # print(f"Moonraker state updated: {self.current_state['moonraker']}")
 
         except Exception as e:
             if self.debug:
