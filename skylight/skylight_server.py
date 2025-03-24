@@ -43,45 +43,48 @@ class SkylightClient(SimpleWebsocketClient):
                 if not self.is_connected:
                     if disconnect_time is None:
                         disconnect_time = time.time()
-                        if self.debug:
-                            print(f"Connection lost to {self.url} at {time.strftime('%H:%M:%S')}")
+                        print(f"Connection lost to {self.url} at {time.strftime('%H:%M:%S')}")
                     
-                    if self.debug:
-                        elapsed = time.time() - disconnect_time
-                        print(f"Connection has been down for {elapsed:.1f}s, attempting to reconnect...")
+                    if time.time() - disconnect_time > 30:  # Only log every 30 seconds
+                        print(f"Connection has been down for {(time.time() - disconnect_time):.0f}s, attempting to reconnect...")
                     
                     await self.connect()
-                    if self.debug:
-                        print(f"Reconnected to {self.url} after {time.time() - disconnect_time:.1f}s downtime")
-                    disconnect_time = None
+                    if disconnect_time is not None:
+                        print(f"Reconnected to {self.url} after {(time.time() - disconnect_time):.0f}s downtime")
+                        disconnect_time = None
                     await self.subscribe(self.subscription)
                 
                 message = await self.receive()
                 if isinstance(message, str):
                     data = json.loads(message)
                     if self.callback:
-                        # Track state changes
+                        # Track significant state changes only
                         if self.debug and isinstance(data, dict):
                             if 'params' in data and isinstance(data['params'], list) and data['params']:
                                 new_state = data['params'][0]
                                 if self.last_state != new_state:
-                                    print(f"State changed from {self.last_state} to {new_state}")
+                                    # Only log state changes that affect printer status
+                                    state_diff = {}
+                                    for key in ['state', 'is_paused', 'target', 'temperature']:
+                                        if key in new_state and (not self.last_state or key not in self.last_state or new_state[key] != self.last_state[key]):
+                                            state_diff[key] = new_state[key]
+                                    if state_diff:
+                                        print(f"State changes: {state_diff}")
                                     self.last_state = new_state
                         await self.callback(data)
                 await asyncio.sleep(0.1)
             except websockets.exceptions.ConnectionClosed as e:
                 if self.debug:
-                    print(f"WebSocket connection closed to {self.url}: code={e.code}, reason={e.reason}")
-                    print(f"Last known state: {self.last_state}")
+                    print(f"WebSocket connection closed to {self.url}: code={e.code}")
                 await asyncio.sleep(1.0)  # Wait before retry
             except json.JSONDecodeError as e:
                 if self.debug:
-                    print(f"JSON decode error for message from {self.url}: {e}")
-                    print(f"Raw message: {message}")
+                    print(f"JSON decode error from {self.url}")
+                await asyncio.sleep(1.0)
             except Exception as e:
                 if self.debug:
                     print(f"Error in receive loop for {self.url}: {type(e).__name__}: {str(e)}")
-                await asyncio.sleep(1.0)  # Wait before retry
+                await asyncio.sleep(1.0)
 
 class SkylightServer(SimpleWebsocketServer):
     def __init__(self, config_manager, host='0.0.0.0', debug=True):
@@ -279,8 +282,7 @@ class SkylightServer(SimpleWebsocketServer):
         try:
             if not isinstance(data, dict):
                 if self.debug:
-                    pass
-                    # print(f"update_moonraker_state received non-dict data: {type(data)} - {data}")
+                    pass  # Removed noisy debug output
                 return
 
             # Extract values with better error handling
@@ -302,34 +304,39 @@ class SkylightServer(SimpleWebsocketServer):
 
             # Update state with extracted values
             default_state = self.current_state["moonraker"]
-            self.current_state["moonraker"].update({
+            new_state = {
                 "temperature": extruder_data.get("temperature", default_state["temperature"]),
                 "target": extruder_data.get("target", default_state["target"]),
                 "progress": display_data.get("progress", default_state["progress"]),
                 "state": idle_data.get("state", default_state["state"]),
                 "is_paused": pause_data.get("is_paused", default_state["is_paused"])
-            })
+            }
+
+            # Only update and log if there are meaningful changes
+            changes = {}
+            for key, value in new_state.items():
+                if abs(value - default_state[key]) > 0.1 if isinstance(value, float) else value != default_state[key]:
+                    changes[key] = value
+                    self.current_state["moonraker"][key] = value
 
             # Update LED state if enough time has passed
             if time.time() - self.last_update_time > self.current_state["update_interval"]:
                 self.last_update_time = time.time()
                 self.update_skylight_state()
-                # print(f"default_state = {default_state}")
-                print(f"Moonraker state updated: {self.current_state['moonraker']}")
+                if changes and self.debug:
+                    print(f"Moonraker state changes: {changes}")
 
         except Exception as e:
             if self.debug:
                 print(f"Error in update_moonraker_state: {str(e)}")
-                print(f"Data type: {type(data)}")
-                print(f"Data content: {data}")
 
     def update_skylight_state(self):
         """Determine the state of the Skylight system and update LED patterns."""
         preset_scene, percent = self.determine_mode()
         default_state = self.current_state["skylight"]
-        print(f"preset_scene = {preset_scene}")
-        print(f"default_state = {default_state}")
         if preset_scene != default_state['preset_scene']:
+            if self.debug:
+                print(f"Changing preset scene from {default_state['preset_scene']} to {preset_scene}")
             self.current_state['skylight']['preset_scene'] = preset_scene
             formats = self.current_state["preset_formats"].get(preset_scene, [])
             self.set_scene_format(formats)
