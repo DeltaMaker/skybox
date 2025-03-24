@@ -167,16 +167,17 @@ class SkylightServer(SimpleWebsocketServer):
         )
         
         # Configure subscription validation
-        def moonraker_confirmation(response: dict) -> bool:
+        def moonraker_confirmation(data: dict) -> bool:
             if self.debug:
-                print(f"Checking Moonraker subscription confirmation: {response}")
-            if response.get('jsonrpc') == '2.0':
-                if 'result' in response:
+                print(f"Checking Moonraker subscription confirmation: {data}")
+            if data.get('jsonrpc') == '2.0':
+                if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
+                    self.update_moonraker_state(data['result']['status'])
                     if self.debug:
                         print("Moonraker subscription confirmed")
                     return True
-                if 'error' in response:
-                    print(f"Subscription error: {response['error']}")
+                if 'error' in data:
+                    print(f"Subscription error: {data['error']}")
             return False
         
         async def handle_notifications(msg: dict) -> None:
@@ -254,8 +255,6 @@ class SkylightServer(SimpleWebsocketServer):
         """Handle updates from Moonraker"""
         try:
             if isinstance(data, dict):
-                if 'method' in data:
-                    print(f"Moonraker method: {data['method']}")
                 if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
                     self.update_moonraker_state(data['result']['status'])
                 elif 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
