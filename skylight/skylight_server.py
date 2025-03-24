@@ -254,6 +254,8 @@ class SkylightServer(SimpleWebsocketServer):
         """Handle updates from Moonraker"""
         try:
             if isinstance(data, dict):
+                if 'method' in data:
+                    print(f"Moonraker method: {data['method']}")
                 if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
                     self.update_moonraker_state(data['result']['status'])
                 elif 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
@@ -411,12 +413,15 @@ class SkylightServer(SimpleWebsocketServer):
         self.current_state["scene"] = formats
         if self.debug:
             print(f"formats = {formats}")
+        self.last_values = None
         self.led_controller.set_data_fields(formats)
 
     def set_scene_values(self, values):
         """Set the LED controller to the specified values."""
         if self.debug:
-            print(f"values = {values}")
+            if self.last_values != values:
+                print(f"values = {values}")
+                self.last_values = values
         formats = self.current_state["scene"]
         n_values = len(formats) if formats else 1
         if not isinstance(values, list):
