@@ -316,7 +316,7 @@ class SkylightServer(SimpleWebsocketServer):
             # Only update and log if there are meaningful changes
             changes = {}
             for key, value in new_state.items():
-                if abs(value - default_state[key]) > 0.1 if isinstance(value, float) else value != default_state[key]:
+                if abs(value - default_state[key]) > 0.01 if isinstance(value, float) else value != default_state[key]:
                     changes[key] = value
                     self.current_state["moonraker"][key] = value
 
