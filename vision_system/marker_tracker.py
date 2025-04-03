@@ -18,12 +18,13 @@ def convert_numpy_types(obj):
     return obj
 
 class MarkerTracker:
-    def __init__(self, marker_size=0.01, total_markers=50, dictionary_id=cv2.aruco.DICT_4X4_50):
+    def __init__(self, marker_size=0.01, total_markers=100, dictionary_id=cv2.aruco.DICT_4X4_50, debug=False):
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
         self.detector = cv2.aruco  # Use the aruco module directly for detecting markers
         self.marker_size = marker_size
         self.camera_matrix, self.distortion_coeffs = self.default_camera_calibration()
         self.corners = self.ids = None
+        self.debug = debug
 
     def default_camera_calibration(self, image_width=640, image_height=480):
         focal_length = image_width if image_width > image_height else image_height
@@ -46,7 +47,8 @@ class MarkerTracker:
             Coordinates are truncated to 4 decimal places.
         """
         height, width = frame.shape[:2]
-        print(f"Processing frame with size {width}x{height}")
+        if self.debug:
+            print(f"Processing frame with size {width}x{height}")
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         self.corners, self.ids, _ = self.detector.detectMarkers(gray, self.aruco_dict)
         marker_data = []

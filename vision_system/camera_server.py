@@ -73,7 +73,7 @@ class CameraServer(SimpleWebsocketServer):
         """Initialize the base camera server."""
         super().__init__(host, port, debug)
         self.base_size = base_size  # Will be set during camera setup to actual capture resolution
-        self.marker_tracker = MarkerTracker()
+        self.marker_tracker = MarkerTracker(marker_size=0.01, debug=debug)
         self.hand_tracker = HandTracker()
         self.frame_count = 0
         self.last_fps_print = time.time()
@@ -315,6 +315,8 @@ def main():
                       help="Host address to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=7160,
                       help="Port number to listen on (default: 7160)")
+    parser.add_argument("--url", type=str, default="http://deltamaker-0407.local/webcam/?action=snapshot",
+                      help="Video stream URL")
     parser.add_argument("--camera", type=int, default=0,
                       help="Camera device ID for OpenCV (default: 0)")
     parser.add_argument("--debug", action="store_true",
@@ -335,6 +337,15 @@ def main():
             logging.info(f"Starting Static JPEG server on {args.host}:{args.port}")
             server = StaticJPEGServer(
                 jpeg_path=args.jpeg,
+                host=args.host,
+                port=args.port,
+                debug=args.debug
+            )
+            server.run()
+        elif args.url:
+            logging.info(f"Starting HTTP camera server on {args.host}:{args.port}")
+            server = HTTPServer(
+                url=args.url,
                 host=args.host,
                 port=args.port,
                 debug=args.debug

@@ -232,6 +232,7 @@ class SimpleWebsocketServer:
         clients_status = self.status_message()
         response = {
             'status': 'running' if self.running else 'stopped',
+            'debug': 'on' if self.debug else 'off',
             'server_info': self.get_status_info(),
             'clients': clients_status or []
         }

@@ -69,13 +69,13 @@ class CameraViewer:
             corners[:, 0] = corners_norm[:, 0] * width  # x coordinates
             corners[:, 1] = corners_norm[:, 1] * height  # y coordinates
             corners = corners.astype(np.int32)
-            
+            """
             cv2.polylines(frame, 
                          [corners.reshape(-1, 1, 2)],
                          isClosed=True,
                          color=(0, 255, 0),
                          thickness=1)
-            
+            """
             marker_id = str(marker.get('id', '-'))
             text_pos = (int(corners[0][0]), int(corners[0][1] - 10))
             cv2.putText(frame,
@@ -195,15 +195,15 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://localhost:7160/websocket")
+    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.228:7160/websocket")
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
-    parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
+    parser.add_argument("--fps", type=int, default=10, help="Frames per second (default: 10)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
-    parser.add_argument("--hands", action="store_false", help="Track hands if set")
-    parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--hands", action="store_true", help="Track hands if set")
+    parser.add_argument("--debug", action="store_false", help="Enable debug output")
 
-    args = parser.parse_args()
+    args = parser.parse_args()  
     
     try:
         asyncio.run(run_camera_client(
