@@ -18,7 +18,7 @@ def convert_numpy_types(obj):
     return obj
 
 class MarkerTracker:
-    def __init__(self, marker_size=0.01, total_markers=100, dictionary_id=cv2.aruco.DICT_4X4_50, debug=False):
+    def __init__(self, marker_size=0.01, dictionary_id=cv2.aruco.DICT_4X4_100, debug=False):
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
         self.detector = cv2.aruco  # Use the aruco module directly for detecting markers
         self.marker_size = marker_size
