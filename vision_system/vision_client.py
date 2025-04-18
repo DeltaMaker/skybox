@@ -229,13 +229,14 @@ async def run_vision_client(ws_uri, width, fps, mirror, track_hands, track_marke
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Vision WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://deltamaker-0409.local:7160/websocket")
+    #parser.add_argument("--ws_uri", type=str, default="ws://deltamaker-0409.local:7160/websocket")
+    parser.add_argument("--ws_uri", type=str, default="ws://localhost:7160/websocket")
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--fps", type=int, default=15, help="Frames per second (default: 15)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
     parser.add_argument("--square", action="store_true", help="Crop frame to center square")
     parser.add_argument("--hands", action="store_true", help="Track hands if set")
-    parser.add_argument("--markers", action="store_true", help="Track markers if set")
+    parser.add_argument("--markers", action="store_false", help="Track markers if set")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
 
     args = parser.parse_args()

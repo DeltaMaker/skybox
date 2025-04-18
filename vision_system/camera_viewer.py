@@ -77,14 +77,16 @@ class CameraViewer:
                          thickness=1)
             """
             marker_id = str(marker.get('id', '-'))
-            text_pos = (int(corners[0][0]), int(corners[0][1] - 10))
+            text_pos = (int(corners[0][0]), int(corners[0][1] + 15))
+            font_scale = 0.5
             cv2.putText(frame,
                        f"{marker_id}",
                        text_pos,
                        cv2.FONT_HERSHEY_SIMPLEX,
-                       0.75,
-                       (0, 255, 0),
-                       2)
+                       font_scale,
+                       (255, 0, 0),
+                       1,
+                       cv2.LINE_AA)
             
             cv2.circle(frame,
                       (int(corners[0][0]), int(corners[0][1])),
@@ -195,13 +197,13 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.228:7160/websocket")
-    parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
+    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.171:7160/websocket")
+    parser.add_argument("--width", type=int, default=960, help="Frame width (default: 640)")
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (default: 10)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
     parser.add_argument("--hands", action="store_true", help="Track hands if set")
-    parser.add_argument("--debug", action="store_false", help="Enable debug output")
+    parser.add_argument("--debug", action="store_true", help="Enable debug output")
 
     args = parser.parse_args()  
     
@@ -213,7 +215,7 @@ def main():
             args.fps, 
             args.mirror, 
             args.hands,
-            True
+            args.debug
         ))
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")

@@ -225,7 +225,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Vision Server for HTTP snapshot cameras")
-    parser.add_argument("--url", default="http://deltamaker-0409.local/webcam/?action=snapshot", help="URL of the snapshot endpoint")
+    parser.add_argument("--url", default="http://192.168.1.171/webcam/?action=snapshot", help="URL of the snapshot endpoint")
     parser.add_argument("--auth", help="Basic auth in format username:password")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
