@@ -69,31 +69,60 @@ class CameraViewer:
             corners[:, 0] = corners_norm[:, 0] * width  # x coordinates
             corners[:, 1] = corners_norm[:, 1] * height  # y coordinates
             corners = corners.astype(np.int32)
-            """
-            cv2.polylines(frame, 
-                         [corners.reshape(-1, 1, 2)],
-                         isClosed=True,
-                         color=(0, 255, 0),
-                         thickness=1)
-            """
             marker_id = str(marker.get('id', '-'))
-            text_pos = (int(corners[0][0]), int(corners[0][1] + 15))
-            font_scale = 0.5
-            cv2.putText(frame,
-                       f"{marker_id}",
-                       text_pos,
-                       cv2.FONT_HERSHEY_SIMPLEX,
-                       font_scale,
-                       (255, 0, 0),
-                       1,
-                       cv2.LINE_AA)
-            
-            cv2.circle(frame,
-                      (int(corners[0][0]), int(corners[0][1])),
-                      radius=3,
-                      color=(0, 0, 255),
-                      thickness=-1)
+            self.draw_marker_polygon(frame, corners, marker_id)
+
         return frame
+
+    def draw_marker_polygon(self, frame, corners, marker_id):
+        """
+        Draw a marker polygon with white fill, red outline, and ID text scaled to fit inside.
+        
+        Parameters:
+            frame: The image to draw on
+            corners: Array of corner points
+            marker_id: ID number to display inside the polygon
+        """
+        # Reshape corners for OpenCV functions
+        corners_array = corners.reshape(-1, 1, 2).astype(np.int32)
+        
+        # Fill polygon with white
+        cv2.fillPoly(frame, [corners_array], color=(255, 255, 255))
+        
+        # Add thin red outline
+        cv2.polylines(frame, 
+                    [corners_array],
+                    isClosed=True,
+                    color=(0, 0, 255),  # Red color
+                    thickness=1)         # Thin line
+    
+        # Calculate center of polygon
+        center_x = int(np.mean(corners[:, 0]))
+        center_y = int(np.mean(corners[:, 1]))
+        
+        # Calculate polygon size to scale text
+        x_min = np.min(corners[:, 0])
+        y_min = np.min(corners[:, 1])
+        x_max = np.max(corners[:, 0])
+        y_max = np.max(corners[:, 1])
+        
+        polygon_width = x_max - x_min
+        polygon_height = y_max - y_min
+        
+        # Determine font scale based on polygon size
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        id_text = str(marker_id)
+        font_scale = min(polygon_width, polygon_height) / (100 * max(1, len(id_text)))
+        font_scale = max(0.3, min(font_scale, 2.0))  # Limit scale between 0.3 and 2.0
+        
+        # Get text size
+        text_size, _ = cv2.getTextSize(id_text, font, font_scale, 1)
+        text_x = center_x - text_size[0] // 2  # Center text horizontally
+        text_y = center_y + text_size[1] // 2   # Center text vertically
+        
+        # Draw text in black
+        cv2.putText(frame, id_text, (text_x, text_y), font, font_scale, (0, 0, 0), 1, cv2.LINE_AA)
+
 
     def draw_hands(self, frame, hands):
         """Draw detected hand landmarks on the frame."""
