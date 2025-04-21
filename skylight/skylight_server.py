@@ -14,28 +14,23 @@ from config.config_manager import ConfigManager
 
 class SkylightClient(SimpleWebsocketClient):
     """Client for connecting to external services (Moonraker, Skybox)"""
-    def __init__(self, url: str, subscription: dict, debug: bool = False):
-        super().__init__(url)
+    def __init__(self, url: str, subscription: dict, debug: bool = False, debug_level: int = 1):
+        super().__init__(url, debug=debug, debug_level=debug_level)
         self.subscription = subscription
-        self.debug = debug
         self.last_state = None  # Track last known state
 
     async def start(self, callback):
         """Start client with callback for updates"""
-        if self.debug:
-            print(f"Starting SkylightClient connection to {self.url}")
+        self.debug_log(f"Starting SkylightClient connection to {self.url}", 3)
         self.callback = callback
         await self.connect()
-        print(f"Connected and subscribing with: {self.subscription}")
+        self.debug_log(f"Connected and subscribing with: {self.subscription}", 3)
         await self.subscribe(self.subscription)
-        if self.debug:
-            print("Starting receive loop")
         asyncio.create_task(self.receive_loop())
 
     async def receive_loop(self):
         """Continuously receive and process messages"""
-        if self.debug:
-            print(f"Receive loop started for {self.url}")
+        self.debug_log(f"Receive loop started for {self.url}", 3)
         disconnect_time = None
         
         while True:
@@ -59,7 +54,7 @@ class SkylightClient(SimpleWebsocketClient):
                     data = json.loads(message)
                     if self.callback:
                         # Track significant state changes only
-                        if self.debug and isinstance(data, dict):
+                        if isinstance(data, dict):
                             if 'params' in data and isinstance(data['params'], list) and data['params']:
                                 new_state = data['params'][0]
                                 if self.last_state != new_state:
@@ -69,31 +64,27 @@ class SkylightClient(SimpleWebsocketClient):
                                         if key in new_state and (not self.last_state or key not in self.last_state or new_state[key] != self.last_state[key]):
                                             state_diff[key] = new_state[key]
                                     if state_diff:
-                                        print(f"State changes: {state_diff}")
+                                        self.debug_log(f"State changes: {state_diff}", 2)
                                     self.last_state = new_state
                         await self.callback(data)
                 await asyncio.sleep(0.1)
             except websockets.exceptions.ConnectionClosed as e:
-                if self.debug:
-                    print(f"WebSocket connection closed to {self.url}: code={e.code}")
+                self.debug_log(f"WebSocket connection closed to {self.url}: code={e.code}", 2)
                 await asyncio.sleep(1.0)  # Wait before retry
             except json.JSONDecodeError as e:
-                if self.debug:
-                    print(f"JSON decode error from {self.url}")
+                self.debug_log(f"JSON decode error from {self.url}", 2)
                 await asyncio.sleep(1.0)
             except Exception as e:
-                if self.debug:
-                    print(f"Error in receive loop for {self.url}: {type(e).__name__}: {str(e)}")
+                self.debug_log(f"Error in receive loop for {self.url}: {type(e).__name__}: {str(e)}", 1)
                 await asyncio.sleep(1.0)
 
 class SkylightServer(SimpleWebsocketServer):
-    def __init__(self, config_manager, host='0.0.0.0', debug=True):
+    def __init__(self, config_manager, host='0.0.0.0', debug=True, debug_level=2):
         # Initialize server
         port = config_manager.getint('skylight', 'skylight_port', 7120)
-        super().__init__(host=host, port=port, debug=debug)
+        super().__init__(host=host, port=port, debug=debug, debug_level=debug_level)
         
         self.config_manager = config_manager
-        self.debug = debug
         
         # Initialize LED controller
         led_count = config_manager.getint('skylight', 'led_count', 30)
@@ -108,7 +99,6 @@ class SkylightServer(SimpleWebsocketServer):
         
         # Start with rainbow preset
         self.show_preset("rainbow")
-
 
     def initialize_current_state(self, led_count, update_interval):
         """Initialize the current state of the Skylight system."""
@@ -144,8 +134,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     def setup_moonraker_client(self):
         """Setup Moonraker client"""
-        if self.debug:
-            print(f"Setting up Moonraker client with URI: {self.config_manager.moonraker_uri()}")
+        self.debug_log(f"Setting up Moonraker client with URI: {self.config_manager.moonraker_uri()}", 3)
         
         client = SkylightClient(
             url=self.config_manager.moonraker_uri(),
@@ -163,48 +152,46 @@ class SkylightServer(SimpleWebsocketServer):
                 },
                 "id": 2 
             },
-            debug=self.debug
+            debug=self.debug,
+            debug_level=1  # Only show errors by default
         )
         
         # Configure subscription validation
         def moonraker_confirmation(data: dict) -> bool:
-            if self.debug:
-                print(f"Checking Moonraker subscription confirmation: {data}")
+            self.debug_log(f"Checking Moonraker subscription confirmation: {data}", 3)
             if data.get('jsonrpc') == '2.0':
                 if 'result' in data and isinstance(data['result'], dict) and 'status' in data['result']:
                     self.update_moonraker_state(data['result']['status'])
-                    if self.debug:
-                        print("Moonraker subscription confirmed")
+                    self.debug_log("Moonraker subscription confirmed", 3)
                     return True
                 if 'error' in data:
-                    print(f"Subscription error: {data['error']}")
+                    self.debug_log(f"Subscription error: {data['error']}", 1)
             return False
         
         async def handle_notifications(msg: dict) -> None:
             # Only handle non-status-update notifications here
             # Status updates are handled by handle_moonraker_update
             if 'method' in msg:
-                if self.debug:
-                    if msg['method'] != 'notify_status_update':
-                        print(f"Moonraker notification: {msg['method']}")
-                    else:
-                        print("Received status update notification")
+                if msg['method'] != 'notify_status_update':
+                    self.debug_log(f"Moonraker notification: {msg['method']}", 3)
+                else:
+                    self.debug_log("Received status update notification", 4)
         
-        if self.debug:
-            print("Setting up Moonraker subscription handlers")
+        self.debug_log("Setting up Moonraker subscription handlers", 3)
         
         client.set_subscription_handlers(
             confirmation_predicate=moonraker_confirmation,
             notification_handler=handle_notifications
         )
         
-        if self.debug:
-            print("Moonraker client setup complete")
+        self.debug_log("Moonraker client setup complete", 3)
         
         return client
 
     def setup_skybox_client(self):
         """Setup Skybox client"""
+        self.debug_log(f"Setting up Skybox client with URI: {self.config_manager.skybox_uri()}", 3)
+        
         client = SkylightClient(
             url=self.config_manager.skybox_uri(),
             subscription={
@@ -218,27 +205,32 @@ class SkylightServer(SimpleWebsocketServer):
                 },
                 "id": 3
             },
-            debug=self.debug
+            debug=self.debug,
+            debug_level=1  # Only show errors by default
         )
         
         # Configure subscription validation
         def skybox_confirmation(response: dict) -> bool:
             if response.get('jsonrpc') == '2.0':
                 if 'result' in response and response['result'].get('status') == 'ok':
+                    self.debug_log("Skybox subscription confirmed", 3)
                     return True
                 if 'error' in response:
-                    print(f"Subscription error: {response['error']}")
+                    self.debug_log(f"Subscription error: {response['error']}", 1)
             return False
         
         async def handle_notifications(msg: dict) -> None:
             if 'method' in msg and msg['method'] == 'notify_data_update':
-                pass
-                # print(f"Received data update during subscribe: {msg}")
+                self.debug_log(f"Received data update during subscribe: {msg}", 4)
+        
+        self.debug_log("Setting up Skybox subscription handlers", 3)
         
         client.set_subscription_handlers(
             confirmation_predicate=skybox_confirmation,
             notification_handler=handle_notifications
         )
+        
+        self.debug_log("Skybox client setup complete", 3)
         
         return client
 
@@ -263,27 +255,21 @@ class SkylightServer(SimpleWebsocketServer):
                     if 'params' in data and isinstance(data['params'], list) and len(data['params']) > 0:
                         self.update_moonraker_state(data['params'][0])
                 else:
-                    if self.debug:
-                        print(f"Unhandled dict message format: {data}")
+                    self.debug_log(f"Unhandled dict message format: {data}", 4)
             else:
-                if self.debug:
-                    pass
-                    # print(f"Received non-dict message type {type(data)}: {data}")
+                self.debug_log(f"Unhandled message type: {type(data)}", 4)
             
         except Exception as e:
-            if self.debug:
-                print(f"Error processing Moonraker update: {str(e)}")
-                print(f"Message type: {type(data)}")
-                print(f"Message content: {data}")
-                if isinstance(data, dict):
-                    print(f"Message keys: {data.keys()}")
+            self.debug_log(f"Error processing Moonraker update: {str(e)}", 1)
+            self.debug_log(f"Message type: {type(data)}", 1)
+            self.debug_log(f"Message content: {data}", 1)
+            if isinstance(data, dict):
+                self.debug_log(f"Message keys: {data.keys()}", 1)
 
     def update_moonraker_state(self, data):
         """Update the state of the Skylight system based on Moonraker messages."""
         try:
             if not isinstance(data, dict):
-                if self.debug:
-                    pass  # Removed noisy debug output
                 return
 
             # Extract values with better error handling
@@ -324,20 +310,18 @@ class SkylightServer(SimpleWebsocketServer):
             if time.time() - self.last_update_time > self.current_state["update_interval"]:
                 self.last_update_time = time.time()
                 self.update_skylight_state()
-                if changes and self.debug:
-                    print(f"Moonraker state changes: {changes}")
+                if changes:
+                    self.debug_log(f"Moonraker state changes: {changes}", 2)
 
         except Exception as e:
-            if self.debug:
-                print(f"Error in update_moonraker_state: {str(e)}")
+            self.debug_log(f"Error in update_moonraker_state: {str(e)}", 1)
 
     def update_skylight_state(self):
         """Determine the state of the Skylight system and update LED patterns."""
         preset_scene, percent = self.determine_mode()
         default_state = self.current_state["skylight"]
         if preset_scene != default_state['preset_scene']:
-            if self.debug:
-                print(f"Changing preset scene from {default_state['preset_scene']} to {preset_scene}")
+            self.debug_log(f"Changing preset scene from {default_state['preset_scene']} to {preset_scene}", 3)
             self.current_state['skylight']['preset_scene'] = preset_scene
             formats = self.current_state["preset_formats"].get(preset_scene, [])
             self.set_scene_format(formats)
@@ -371,8 +355,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     async def handle_skybox_update(self, data):
         """Handle updates from Skybox"""
-        if self.debug:
-            print(f"Skybox data received: {data}")
+        self.debug_log(f"Skybox data received: {data}", 3)
 
     def extract_client_info(self, config):
         """Extract client configuration"""
@@ -401,7 +384,7 @@ class SkylightServer(SimpleWebsocketServer):
 
     def show_preset(self, name):
         """Display the preset scene on the Skylight system."""
-        print(f"Showing preset: {name}")
+        self.debug_log(f"Showing preset: {name}", 3)
         format_data = self.current_state["preset_formats"].get(name, [])
         if format_data:
             self.current_state['skylight']['preset_scene'] = name
@@ -410,17 +393,15 @@ class SkylightServer(SimpleWebsocketServer):
     def set_scene_format(self, formats):
         """Set the LED controller to the specified format."""
         self.current_state["scene"] = formats
-        if self.debug:
-            print(f"formats = {formats}")
+        self.debug_log(f"formats = {formats}", 4)
         self.last_values = None
         self.led_controller.set_data_fields(formats)
 
     def set_scene_values(self, values):
         """Set the LED controller to the specified values."""
-        if self.debug:
-            if self.last_values != values:
-                print(f"values = {values}")
-                self.last_values = values
+        if self.last_values != values:
+            self.debug_log(f"values = {values}", 4)
+            self.last_values = values
         formats = self.current_state["scene"]
         n_values = len(formats) if formats else 1
         if not isinstance(values, list):
@@ -449,21 +430,17 @@ class SkylightServer(SimpleWebsocketServer):
                             try:
                                 color_strip = self.led_controller.get_overlay_shapes()
                                 message_json = json.dumps({"overlay": color_strip})
-                                if self.debug:
-                                    print(f"Sending overlay to {uri}: {message_json}")
+                                self.debug_log(f"Sending overlay to {uri}: {message_json}", 4)
                                 await websocket.send(message_json)
                                 await asyncio.sleep(1.0)
                             except Exception as e:
-                                if self.debug:
-                                    print(f"Error sending overlay: {e}")
+                                self.debug_log(f"Error sending overlay: {e}", 2)
                                 break  # Break out of the inner loop on error
                 except Exception as e:
-                    if self.debug:
-                        print(f"Error connecting to WebSocket server at {uri}: {e}")
+                    self.debug_log(f"Error connecting to WebSocket server at {uri}: {e}", 2)
                     await asyncio.sleep(5.0)  # Wait before retrying
         except Exception as e:
-            if self.debug:
-                print(f"LED overlay task error: {e}")
+            self.debug_log(f"LED overlay task error: {e}", 1)
 
     def add_custom_routes(self, router):
         """Add custom routes for the Skylight server."""
@@ -483,6 +460,13 @@ class SkylightServer(SimpleWebsocketServer):
 
         if path == "/skylight/status" and request.method == 'GET':
             return web.json_response(self.current_state)
+
+        if path == "/skylight/debug" and request.method in ['GET', 'POST']:
+            combined_params = {**query_params, **post_params}
+            if "level" in combined_params:
+                new_level = int(combined_params["level"])
+                self.set_debug_level(new_level)
+            return web.json_response({"debug": self.debug, "level": self.debug_level})
 
         if path == "/skylight/control" and request.method in ['GET', 'POST']:
             combined_params = {**query_params, **post_params}
@@ -530,8 +514,23 @@ class SkylightServer(SimpleWebsocketServer):
             # await self.skybox_client.disconnect()
             self.led_controller.cleanup()
         except Exception as e:
-            if self.debug:
-                print(f"Cleanup error: {e}")
+            self.debug_log(f"Cleanup error: {e}", 1)
+
+    def set_debug_level(self, level):
+        """Set the debug level for the server.
+        
+        Args:
+            level: Debug level (1=errors, 2=warnings, 3=info, 4=verbose)
+        """
+        old_level = self.debug_level
+        self.debug_level = level
+        self.debug_log(f"Changed debug level from {old_level} to {level}", 1)
+        
+        # Update client debug levels
+        if hasattr(self, 'moonraker_client'):
+            self.moonraker_client.set_debug(self.debug, max(1, level - 1))  # Client gets one level less verbose
+        
+        return self.debug_level
 
 def main():
     # Update config path to use absolute path
@@ -540,8 +539,17 @@ def main():
     print(f"Config directory: {config_dir}")
     config_manager = ConfigManager(config_file="localhost.conf", config_dir=config_dir)
     
-    # Explicitly set debug=True
-    server = SkylightServer(config_manager, debug=True)
+    # Get debug settings from config
+    debug_enabled = config_manager.getboolean('skylight', 'debug', True)
+    debug_level = config_manager.getint('skylight', 'debug_level', 2)
+    print(f"Debug settings: enabled={debug_enabled}, level={debug_level}")
+    
+    # Create server with configured debug settings
+    server = SkylightServer(
+        config_manager, 
+        debug=debug_enabled,
+        debug_level=debug_level
+    )
     
     try:
         server.run()

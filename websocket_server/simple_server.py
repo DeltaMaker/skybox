@@ -92,6 +92,7 @@ class SimpleWebsocketServer:
         app = web.Application()
         app.router.add_route('GET', '/websocket', self.websocket_handler)
         app.router.add_route('GET', '/status', self.http_handler)
+        app.router.add_route('GET', '/debug', self.debug_handler)
         self.add_custom_routes(app.router)
         
         runner = web.AppRunner(app)
@@ -103,7 +104,8 @@ class SimpleWebsocketServer:
         host_ip = self.get_host_ip()
         print(f"Server started on ws://{host_ip}:{self.port} (WebSocket and HTTP)")
         print(f"Server status at http://{host_ip}:{self.port}/status")
-        print("Note: Server accepts non-SSL connections")
+        #print(f"Debug control at http://{host_ip}:{self.port}/debug?level=N")
+        #print("Note: Server accepts non-SSL connections")
 
         await self.start_clients()
 
@@ -269,6 +271,49 @@ class SimpleWebsocketServer:
     def get_status_info(self):
         """Template method for server-specific status information."""
         return {}  # Base implementation returns empty dict
+
+    async def debug_handler(self, request):
+        """Handle HTTP requests to control debug level."""
+        # Get current settings
+        old_debug = self.debug
+        old_level = self.debug_level
+        
+        # Check for query parameters
+        query = request.query
+        if 'enable' in query:
+            self.debug = query['enable'].lower() in ('true', '1', 'yes', 'on')
+        
+        if 'level' in query:
+            try:
+                level = int(query['level'])
+                if 1 <= level <= 4:
+                    self.set_debug(self.debug, level)
+                else:
+                    return web.json_response(
+                        {"error": "Debug level must be between 1 and 4"}, 
+                        status=400
+                    )
+            except ValueError:
+                return web.json_response(
+                    {"error": "Debug level must be an integer"}, 
+                    status=400
+                )
+        
+        # Log the change if anything changed
+        if old_debug != self.debug or old_level != self.debug_level:
+            self.debug_log(f"Debug settings changed: debug={old_debug}->{self.debug}, level={old_level}->{self.debug_level}", 3)
+        
+        # Return current settings
+        return web.json_response({
+            'debug': self.debug,
+            'debug_level': self.debug_level,
+            'levels': {
+                '1': 'errors',
+                '2': 'warnings',
+                '3': 'info',
+                '4': 'verbose'
+            }
+        })
 
     def run(self):
         """Run the WebSocket server."""
