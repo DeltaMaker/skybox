@@ -47,9 +47,8 @@ async def run_example_client(ws_uri, debug=False):
     
     # Enable debug mode if requested
     if debug:
-        log_file = "example_client_debug.log"
-        print(f"Debug mode enabled. Logs will be written to {log_file}")
-        client.set_debug(debug=True, log_file=log_file)
+        print(f"Debug mode enabled")
+        client.set_debug(debug=True, level=4)
         
     viewer = ExampleViewer(debug=debug)
     

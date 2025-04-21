@@ -24,9 +24,9 @@ import time
 from websocket_server.simple_server import SimpleWebsocketServer
 
 class ExampleServer(SimpleWebsocketServer):
-    def __init__(self, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, debug=False, debug_level=2):
         """Initialize the example server with counter for demo data."""
-        super().__init__(host, port, debug)
+        super().__init__(host, port, debug, debug_level)
         self.counter = 0
         self.test_data = {
             'example': 'data',
@@ -89,7 +89,7 @@ class ExampleServer(SimpleWebsocketServer):
 
 def main():
     """Run the example server."""
-    server = ExampleServer(host='0.0.0.0', port=7160, debug=True)
+    server = ExampleServer(host='0.0.0.0', port=7160, debug=True, debug_level=4)
     try:
         print("Starting Example Server...")
         server.run()

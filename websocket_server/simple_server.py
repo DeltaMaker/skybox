@@ -24,19 +24,48 @@ import logging
 import socket
 
 class SimpleWebsocketServer:
-    def __init__(self, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, debug=False, debug_level=2):
         """Initialize the WebSocket server.
         
         Args:
             host (str): Host address to bind to
             port (int): Port number to listen on
             debug (bool): Enable debug output
+            debug_level (int): Debug level (1=errors, 2=warnings, 3=info, 4=verbose)
         """
         self.host = host
         self.port = port
         self.clients = {}
         self.running = False
         self.debug = debug
+        self.debug_level = debug_level
+
+    def set_debug(self, debug=True, level=1):
+        """Enable or disable debug output.
+        
+        Args:
+            debug: Whether to enable debugging
+            level: Debug level (1=errors, 2=warnings, 3=info, 4=verbose)
+        """
+        self.debug = debug
+        self.debug_level = level if debug else 0
+        return self
+
+    def debug_log(self, message, level=3):
+        """Log a debug message if debug is enabled and message level is at or below debug_level.
+        
+        Args:
+            message: The message to log
+            level: Message importance level (1=error, 2=warning, 3=info, 4=verbose)
+        """
+        if self.debug and level <= self.debug_level:
+            prefix = {
+                1: "[ERROR] ",
+                2: "[WARN] ",
+                3: "[INFO] ",
+                4: "[DEBUG] "
+            }.get(level, "")
+            print(f"{prefix}{message}")
 
     def get_host_ip(self):
             """Attempt to determine the IP address of the machine."""
@@ -115,10 +144,10 @@ class SimpleWebsocketServer:
                     try:
                         async for msg in ws:
                             if msg.type == web.WSMsgType.ERROR:
-                                print(f'WebSocket connection closed with exception {ws.exception()}')
+                                self.debug_log(f'WebSocket connection closed with exception {ws.exception()}', 2)
                                 break
                             elif msg.type == web.WSMsgType.CLOSE:
-                                print('WebSocket connection closed normally')
+                                self.debug_log('WebSocket connection closed normally', 3)
                                 break
                     finally:
                         if ws in self.clients:
@@ -149,8 +178,7 @@ class SimpleWebsocketServer:
                 try:
                     message_data = await self.get_broadcast_data()
                     if message_data:
-                        if self.debug:
-                            print(f"Broadcasting to {len(self.clients)} clients")
+                        self.debug_log(f"Broadcasting to {len(self.clients)} clients", 4)
                         await self.broadcast_to_clients(message_data)
                 except Exception as e:
                     logging.error(f"Error in broadcast loop: {e}")
@@ -221,23 +249,21 @@ class SimpleWebsocketServer:
 
     def status_message(self):
         """Return status information about connected clients."""
-        if self.debug:
-            print(f"status_message called, clients: {self.clients}")
+        self.debug_log(f"status_message called, clients: {self.clients}", 4)
         return [{'config': client_info} for client_info in self.clients.values()]
 
     async def http_handler(self, request):
         """Handle HTTP requests to get the current status."""
-        if self.debug:
-            print("http_handler: Processing /status request")
+        self.debug_log("http_handler: Processing /status request", 4)
         clients_status = self.status_message()
         response = {
             'status': 'running' if self.running else 'stopped',
             'debug': 'on' if self.debug else 'off',
+            'debug_level': self.debug_level,
             'server_info': self.get_status_info(),
             'clients': clients_status or []
         }
-        if self.debug:
-            print(f"http_handler: Sending response: {response}")
+        self.debug_log(f"http_handler: Sending response: {response}", 4)
         return web.json_response(response)
 
     def get_status_info(self):
