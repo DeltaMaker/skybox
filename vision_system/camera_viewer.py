@@ -200,6 +200,8 @@ class CameraViewer:
             frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
             
             if frame is not None:
+                h, w = frame.shape[:2]
+                frame = cv2.resize(frame, (2*w, 2*h))
                 frame = self.draw_markers(frame, self.markers)
                 frame = self.draw_hands(frame, self.hands)
                 frame = self.draw_dimensions(frame)  # Add dimensions overlay
@@ -256,8 +258,8 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.230:7160/websocket")
-    parser.add_argument("--width", type=int, default=960, help="Frame width (default: 640)")
+    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.171:7160/websocket")
+    parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (default: 10)")
     parser.add_argument("--mirror", action="store_true", help="Mirror the image if set")
