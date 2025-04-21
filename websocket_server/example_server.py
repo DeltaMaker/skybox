@@ -28,7 +28,7 @@ class ExampleServer(SimpleWebsocketServer):
         """Generate random data to broadcast."""
         # Simulate data generation
         await asyncio.sleep(0.5)
-        
+        self.counter += 1
         return {
             'counter': self.counter,
             'random_value': random.random(),
