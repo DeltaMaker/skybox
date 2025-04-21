@@ -93,7 +93,7 @@ class CameraViewer:
         cv2.polylines(frame, 
                     [corners_array],
                     isClosed=True,
-                    color=(0, 0, 255),  # Red color
+                    color=(0, 0, 0),  # Black color
                     thickness=1)         # Thin line
     
         # Calculate center of polygon
@@ -112,7 +112,7 @@ class CameraViewer:
         # Determine font scale based on polygon size
         font = cv2.FONT_HERSHEY_SIMPLEX
         id_text = str(marker_id)
-        font_scale = min(polygon_width, polygon_height) / (100 * max(1, len(id_text)))
+        font_scale = min(polygon_width, polygon_height) / (40 * max(1, len(id_text)))
         font_scale = max(0.3, min(font_scale, 2.0))  # Limit scale between 0.3 and 2.0
         
         # Get text size
@@ -121,7 +121,7 @@ class CameraViewer:
         text_y = center_y + text_size[1] // 2   # Center text vertically
         
         # Draw text in black
-        cv2.putText(frame, id_text, (text_x, text_y), font, font_scale, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(frame, id_text, (text_x, text_y), font, font_scale, (0, 0, 255), 1, cv2.LINE_AA)
 
 
     def draw_hands(self, frame, hands):
@@ -164,6 +164,35 @@ class CameraViewer:
                 
         return frame
 
+    def draw_dimensions(self, frame):
+        """Draw the frame dimensions on the image."""
+        height, width = frame.shape[:2]
+        dimensions_text = f"{width}x{height}"
+        
+        # Draw text with dark background for better visibility
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        thickness = 2
+        text_size = cv2.getTextSize(dimensions_text, font, font_scale, thickness)[0]
+        
+        # Position in top-left corner with padding
+        padding = 10
+        text_x = padding
+        text_y = text_size[1] + padding
+        
+        # Draw dark background
+        cv2.rectangle(frame, 
+                     (text_x - 5, text_y - text_size[1] - 5), 
+                     (text_x + text_size[0] + 5, text_y + 5), 
+                     (0, 0, 0), 
+                     -1)
+        
+        # Draw text in white
+        cv2.putText(frame, dimensions_text, (text_x, text_y), font, 
+                   font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+                   
+        return frame
+
     def process_frame(self, frame_data):
         """Process received frame data"""
         if isinstance(frame_data, bytes):
@@ -173,6 +202,7 @@ class CameraViewer:
             if frame is not None:
                 frame = self.draw_markers(frame, self.markers)
                 frame = self.draw_hands(frame, self.hands)
+                frame = self.draw_dimensions(frame)  # Add dimensions overlay
                 cv2.imshow('Received Frame', frame)
                 return cv2.waitKey(1) & 0xFF == ord('q')
             
@@ -195,7 +225,7 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
         # Configure subscription
         config = {
             #"size": [width, height],
-            #"width": width,
+            "width": width,
             "fps": fps,
             "mirror": mirror,
             "hands": track_hands
@@ -226,7 +256,7 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.171:7160/websocket")
+    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.230:7160/websocket")
     parser.add_argument("--width", type=int, default=960, help="Frame width (default: 640)")
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (default: 10)")

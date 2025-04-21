@@ -315,7 +315,7 @@ def main():
                       help="Host address to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=7160,
                       help="Port number to listen on (default: 7160)")
-    parser.add_argument("--url", type=str, default="http://deltamaker-0407.local/webcam/?action=snapshot",
+    parser.add_argument("--url", type=str, default=None,
                       help="Video stream URL")
     parser.add_argument("--camera", type=int, default=0,
                       help="Camera device ID for OpenCV (default: 0)")
