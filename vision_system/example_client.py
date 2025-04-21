@@ -44,6 +44,13 @@ class ExampleViewer:
 async def run_example_client(ws_uri, debug=False):
     """Main client coroutine that connects to the websocket server and processes messages."""
     client = SimpleWebsocketClient(ws_uri)
+    
+    # Enable debug mode if requested
+    if debug:
+        log_file = "example_client_debug.log"
+        print(f"Debug mode enabled. Logs will be written to {log_file}")
+        client.set_debug(debug=True, log_file=log_file)
+        
     viewer = ExampleViewer(debug=debug)
     
     try:

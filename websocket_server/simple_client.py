@@ -16,6 +16,7 @@ import websockets
 import json
 import asyncio
 from typing import Optional, Dict, Any, Callable, Awaitable
+import inspect
 
 class SimpleWebsocketClient:
     def __init__(self, url: str):
@@ -29,10 +30,44 @@ class SimpleWebsocketClient:
         self.running = True  # Flag to control the receive loop
         self.subscription = None  # Store subscription config
         self.callback = None  # Store message callback
+        self.debug = False  # Default debug setting
         
         # Default subscription handlers
         self._subscription_predicate = lambda resp: resp.get('status') == 'subscribed'
         self._notification_handler = None
+
+    def set_debug(self, debug=True, log_file=None):
+        """Enable or disable debug output.
+        
+        Args:
+            debug (bool): Whether to enable debug output
+            log_file (str): Optional path to a log file
+        """
+        self.debug = debug
+        self.log_file = log_file
+        if log_file:
+            # Create or clear the log file
+            with open(log_file, 'w') as f:
+                f.write(f"Debug log started for {self.url}\n")
+        return self
+
+    def debug_log(self, message):
+        """Log debug message if debug is enabled."""
+        if self.debug:
+            caller_frame = inspect.currentframe().f_back
+            caller_func = caller_frame.f_code.co_name
+            log_message = f"[DEBUG] {caller_func}(): {message}"
+            
+            # Print to console
+            print(log_message)
+            
+            # Write to log file if specified
+            if hasattr(self, 'log_file') and self.log_file:
+                try:
+                    with open(self.log_file, 'a') as f:
+                        f.write(log_message + '\n')
+                except Exception as e:
+                    print(f"[ERROR] Failed to write to log file: {e}")
 
     def set_subscription_handlers(self, 
                                 confirmation_predicate: Callable[[Dict], bool],
@@ -57,42 +92,60 @@ class SimpleWebsocketClient:
 
     async def receive_loop(self):
         """Continuously receive and process messages with automatic reconnection"""
+        self.debug_log("Starting receive loop")
         while self.running:
             try:
                 if not self.is_connected:
-                    if hasattr(self, 'debug') and self.debug:
-                        print(f"Attempting to reconnect to {self.url}")
-                    await self.connect()
-                    if self.subscription:
-                        await self.subscribe(self.subscription)
+                    self.debug_log(f"Not connected to {self.url}, attempting to reconnect")
+                    try:
+                        await self.connect()
+                        if self.subscription:
+                            self.debug_log("Resubscribing in receive loop")
+                            await self.subscribe(self.subscription)
+                    except Exception as e:
+                        self.debug_log(f"EXCEPTION: Connection/subscription failed in receive loop: {type(e).__name__}: {str(e)}")
+                        await asyncio.sleep(self.retry_delay)
+                        continue
                 
+                self.debug_log("Connected, entering message processing loop")
                 while self.is_connected and self.running:
-                    message = await self.receive()
-                    if isinstance(message, str):
-                        data = json.loads(message)
-                        if self.callback:
-                            await self.callback(data)
+                    try:
+                        message = await self.receive()
+                        if isinstance(message, str):
+                            try:
+                                data = json.loads(message)
+                                if self.callback:
+                                    self.debug_log("Calling callback with received data")
+                                    await self.callback(data)
+                            except json.JSONDecodeError as e:
+                                self.debug_log(f"EXCEPTION: JSON decode error: {str(e)}")
+                    except ConnectionError as e:
+                        self.debug_log(f"EXCEPTION: Connection error in processing loop: {str(e)}")
+                        break  # Break inner loop to reconnect
+                    
                     await asyncio.sleep(0.1)
                     
-            except websockets.exceptions.ConnectionClosed:
-                if hasattr(self, 'debug') and self.debug:
-                    print(f"Connection to {self.url} closed, will retry...")
+            except websockets.exceptions.ConnectionClosed as e:
+                self.debug_log(f"EXCEPTION: WebSocket connection closed: code={e.code}, reason='{e.reason}'")
                 self.connected = False
                 self.subscribed = False
             except Exception as e:
-                if hasattr(self, 'debug') and self.debug:
-                    print(f"Error in receive loop: {type(e).__name__}: {str(e)}")
+                self.debug_log(f"EXCEPTION: Unexpected error in receive loop: {type(e).__name__}: {str(e)}")
                 self.connected = False
                 self.subscribed = False
             
             # Wait before attempting to reconnect
             if self.running:
-                await asyncio.sleep(self.retry_delay)
+                backoff_delay = self.retry_delay
+                self.debug_log(f"Waiting {backoff_delay:.1f}s before reconnection attempt")
+                await asyncio.sleep(backoff_delay)
 
     async def stop(self):
         """Stop the client and clean up"""
+        self.debug_log("Stopping client")
         self.running = False
         await self.disconnect()
+        self.debug_log("Client stopped")
 
     async def connect(self) -> None:
         """Establish websocket connection with retries."""
@@ -107,93 +160,215 @@ class SimpleWebsocketClient:
                     max_size=10 * 1024 * 1024  # 10MB max message size
                 )
                 self.connected = True
-                if hasattr(self, 'debug') and self.debug:
-                    print(f"Successfully connected to {self.url} with ping_interval=30s, ping_timeout=60s")
+                self.debug_log(f"Successfully connected to {self.url}")
                 return
             except Exception as e:
                 retries += 1
                 if retries < self.max_retries and self.running:
-                    if hasattr(self, 'debug') and self.debug:
-                        print(f"Connection attempt {retries} failed: {str(e)}")
+                    self.debug_log(f"EXCEPTION: Connection attempt {retries} failed: {type(e).__name__}: {str(e)}")
                     await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
                 else:
-                    raise ConnectionError(f"Failed to connect to {self.url} after {self.max_retries} attempts: {str(e)}")
+                    error_msg = f"Failed to connect after {self.max_retries} attempts: {type(e).__name__}: {str(e)}"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg) from e
 
     async def disconnect(self) -> None:
         """Close websocket connection if it exists."""
         if self.ws:
-            await self.ws.close()
-            self.ws = None
+            try:
+                await self.ws.close()
+            except Exception as e:
+                self.debug_log(f"EXCEPTION: Error during disconnect: {type(e).__name__}: {str(e)}")
+            finally:
+                self.ws = None
         self.connected = False
         self.subscribed = False
 
     async def subscribe(self, config: Dict[str, Any]) -> None:
         """Send subscription configuration to the server with retries."""
         if not self.ws:
-            raise ConnectionError("Not connected to websocket")
+            error_msg = "Not connected to websocket"
+            self.debug_log(f"EXCEPTION: {error_msg}")
+            raise ConnectionError(error_msg)
         
+        self.subscription = config  # Store subscription for reconnect
         retries = 0
         while retries < self.max_retries:
             try:
                 # Send configuration message
+                self.debug_log(f"Sending subscription: {config}")
                 await self.ws.send(json.dumps(config))
                 
                 # Wait for confirmation message with timeout
                 try:
                     while True:  # Keep reading messages until we get confirmation
+                        self.debug_log("Waiting for subscription confirmation...")
                         response = await asyncio.wait_for(self.ws.recv(), timeout=5.0)
                         confirmation = json.loads(response)
                         
                         # Check if this confirms subscription
                         if self._subscription_predicate(confirmation):
                             self.subscribed = True
-                            print(f"Successfully subscribed to {self.url}")
+                            self.debug_log(f"Successfully subscribed to {self.url}")
                             return
                             
                         # If not confirmation, might be a notification
                         if self._notification_handler:
+                            self.debug_log("Received non-confirmation message, handling as notification")
                             await self._notification_handler(confirmation)
+                        else:
+                            self.debug_log(f"Received non-confirmation message: {confirmation}")
                             
                 except asyncio.TimeoutError:
-                    print("Subscription confirmation timeout")
+                    self.debug_log("EXCEPTION: Subscription confirmation timeout after 5.0s")
                 
                 retries += 1
                 if retries < self.max_retries:
-                    print(f"Subscription attempt {retries} failed, retrying...")
+                    self.debug_log(f"Subscription attempt {retries} failed, retrying...")
                     await asyncio.sleep(self.retry_delay * retries)
                 else:
-                    raise ConnectionError(f"Failed to subscribe after {self.max_retries} attempts")
+                    error_msg = f"Failed to subscribe after {self.max_retries} attempts"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg)
             except Exception as e:
+                if isinstance(e, ConnectionError) and str(e).startswith("Failed to subscribe after"):
+                    raise  # Re-raise our own error
+                
                 retries += 1
                 if retries < self.max_retries:
-                    print(f"Subscription error: {str(e)}, retrying...")
+                    self.debug_log(f"EXCEPTION: Subscription error: {type(e).__name__}: {str(e)}, retrying...")
                     await asyncio.sleep(self.retry_delay * retries)
                 else:
-                    raise ConnectionError(f"Failed to subscribe: {str(e)}")
+                    error_msg = f"Failed to subscribe: {type(e).__name__}: {str(e)}"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg) from e
 
-    async def receive(self) -> str:
-        """
-        Receive a message from the server.
-        Returns either JSON string for metadata or bytes for frame data.
-        """
-        if not self.ws:
-            raise ConnectionError("Not connected to websocket")
+    async def receive(self):
+        max_retries = 3
+        retry_count = 0
         
-        try:
-            message = await self.ws.recv()
-            return message
-        except websockets.exceptions.ConnectionClosed:
-            self.connected = False
-            self.subscribed = False
-            if hasattr(self, 'debug') and self.debug:
-                print("WebSocket connection closed")
-            raise
-        except Exception as e:
-            self.connected = False
-            self.subscribed = False
-            if hasattr(self, 'debug') and self.debug:
-                print(f"Receive error: {type(e).__name__}: {str(e)}")
-            raise ConnectionError(f"Failed to receive message: {str(e)}")
+        while retry_count < max_retries:
+            if not self.ws or not self.connected:
+                self.debug_log("Not connected or WebSocket is None, attempting to reconnect")
+                try:
+                    await self.reconnect()
+                except Exception as e:
+                    retry_count += 1
+                    self.debug_log(f"EXCEPTION: Reconnect failed (attempt {retry_count}/{max_retries}): {type(e).__name__}: {str(e)}")
+                    if retry_count >= max_retries:
+                        error_msg = f"Failed to reconnect after {max_retries} attempts"
+                        self.debug_log(f"EXCEPTION: {error_msg}")
+                        raise ConnectionError(error_msg) from e
+                    await asyncio.sleep(retry_count * 2)  # Backoff
+                    continue
+            
+            try:
+                # Use timeout to avoid hanging indefinitely
+                self.debug_log("Waiting for message with 10.0s timeout...")
+                message = await asyncio.wait_for(self.ws.recv(), timeout=10.0)
+                self.debug_log("Message received successfully")
+                return message
+            except asyncio.TimeoutError as e:
+                # Connection issue detected - timeout
+                self.connected = False
+                self.subscribed = False
+                
+                # Log the issue
+                self.debug_log(f"EXCEPTION: Receive timeout after 10.0s: {str(e)}")
+                
+                retry_count += 1
+                if retry_count >= max_retries:
+                    error_msg = f"Failed to receive after {max_retries} attempts due to timeout"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg) from e
+                
+                self.debug_log(f"Retrying receive after timeout (attempt {retry_count}/{max_retries})")
+                await asyncio.sleep(retry_count * 2)  # Backoff
+            except websockets.exceptions.ConnectionClosed as e:
+                # Connection issue detected - connection closed
+                self.connected = False
+                self.subscribed = False
+                
+                # Log the issue
+                self.debug_log(f"EXCEPTION: Connection closed: code={e.code}, reason='{e.reason}'")
+                
+                retry_count += 1
+                if retry_count >= max_retries:
+                    error_msg = f"Failed to receive after {max_retries} attempts due to connection closure"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg) from e
+                
+                self.debug_log(f"Retrying receive after connection closed (attempt {retry_count}/{max_retries})")
+                await asyncio.sleep(retry_count * 2)  # Backoff
+            except Exception as e:
+                # Other unexpected exception
+                self.connected = False
+                self.subscribed = False
+                
+                # Log the issue
+                self.debug_log(f"EXCEPTION: Unexpected error during receive: {type(e).__name__}: {str(e)}")
+                
+                retry_count += 1
+                if retry_count >= max_retries:
+                    error_msg = f"Failed to receive after {max_retries} attempts due to {type(e).__name__}"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg) from e
+                
+                self.debug_log(f"Retrying receive after error (attempt {retry_count}/{max_retries})")
+                await asyncio.sleep(retry_count * 2)  # Backoff
+                
+        error_msg = "Failed to receive data after multiple attempts"
+        self.debug_log(f"EXCEPTION: {error_msg}")
+        raise ConnectionError(error_msg)
+
+    async def reconnect(self):
+        self.debug_log("Starting reconnection procedure")
+        # Clean up existing connection
+        if self.ws:
+            try:
+                self.debug_log("Closing existing connection")
+                await self.ws.close()
+            except Exception as e:
+                self.debug_log(f"EXCEPTION: Error closing connection during reconnect: {type(e).__name__}: {str(e)}")
+            finally:
+                self.ws = None
+        
+        # Attempt to reconnect
+        retry_count = 0
+        max_reconnect_retries = 5
+        
+        while retry_count < max_reconnect_retries and not self.connected:
+            try:
+                self.debug_log(f"Reconnection attempt {retry_count+1}/{max_reconnect_retries}")
+                await self.connect()
+                
+                # Resubscribe if we had an active subscription
+                if self.subscription:
+                    self.debug_log("Resubscribing after reconnection")
+                    try:
+                        await self.subscribe(self.subscription)
+                        self.debug_log("Resubscription successful")
+                    except Exception as e:
+                        self.debug_log(f"EXCEPTION: Resubscription failed: {type(e).__name__}: {str(e)}")
+                        # Continue even if resubscription fails - the caller will handle it
+                
+                self.debug_log("Reconnection successful")
+                return
+            except Exception as e:
+                retry_count += 1
+                self.debug_log(f"EXCEPTION: Reconnection attempt {retry_count} failed: {type(e).__name__}: {str(e)}")
+                if retry_count >= max_reconnect_retries:
+                    error_msg = f"Failed to reconnect after {max_reconnect_retries} attempts"
+                    self.debug_log(f"EXCEPTION: {error_msg}")
+                    raise ConnectionError(error_msg) from e
+                
+                backoff_delay = 1.0 * retry_count
+                self.debug_log(f"Waiting {backoff_delay:.1f}s before next reconnection attempt")
+                await asyncio.sleep(backoff_delay)  # Increasing delays
+        
+        error_msg = "Failed to reconnect after server restart"
+        self.debug_log(f"EXCEPTION: {error_msg}")
+        raise ConnectionError(error_msg)
 
     @property
     def is_connected(self) -> bool:
