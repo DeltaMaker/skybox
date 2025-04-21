@@ -168,6 +168,6 @@ __pycache__/
 .vscode/
 
 .DS_Store/
+.DS_Store
+nohup.out
 
-.DS_Store
-.DS_Store
