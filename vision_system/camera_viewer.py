@@ -75,54 +75,69 @@ class CameraViewer:
         return frame
 
     def draw_marker_polygon(self, frame, corners, marker_id):
-        """
-        Draw a marker polygon with white fill, red outline, and ID text scaled to fit inside.
+        """Draw a marker with ID warped to fit the marker's perspective."""
+        # Create square image with ID text
+        square_size = 200
+        id_img = np.ones((square_size, square_size, 3), dtype=np.uint8) * 255
         
-        Parameters:
-            frame: The image to draw on
-            corners: Array of corner points
-            marker_id: ID number to display inside the polygon
-        """
-        # Reshape corners for OpenCV functions
-        corners_array = corners.reshape(-1, 1, 2).astype(np.int32)
-        
-        # Fill polygon with white
-        cv2.fillPoly(frame, [corners_array], color=(255, 255, 255))
-        
-        # Add thin red outline
-        cv2.polylines(frame, 
-                    [corners_array],
-                    isClosed=True,
-                    color=(0, 0, 0),  # Black color
-                    thickness=1)         # Thin line
-    
-        # Calculate center of polygon
-        center_x = int(np.mean(corners[:, 0]))
-        center_y = int(np.mean(corners[:, 1]))
-        
-        # Calculate polygon size to scale text
-        x_min = np.min(corners[:, 0])
-        y_min = np.min(corners[:, 1])
-        x_max = np.max(corners[:, 0])
-        y_max = np.max(corners[:, 1])
-        
-        polygon_width = x_max - x_min
-        polygon_height = y_max - y_min
-        
-        # Determine font scale based on polygon size
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        # Draw text scaled to fill square
         id_text = str(marker_id)
-        font_scale = min(polygon_width, polygon_height) / (40 * max(1, len(id_text)))
-        font_scale = max(0.3, min(font_scale, 2.0))  # Limit scale between 0.3 and 2.0
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_thickness = 5
+        color = (0, 0, 0)
         
-        # Get text size
-        text_size, _ = cv2.getTextSize(id_text, font, font_scale, 1)
-        text_x = center_x - text_size[0] // 2  # Center text horizontally
-        text_y = center_y + text_size[1] // 2   # Center text vertically
+        # Calculate optimal font scale
+        test_size = 5.0
+        text_size, _ = cv2.getTextSize(id_text, font, test_size, font_thickness)
+        margin = 0.8  # 80% of square
+        scale_factor = min(
+            (square_size * margin) / text_size[0],
+            (square_size * margin) / text_size[1]
+        )
+        font_scale = test_size * scale_factor
         
-        # Draw text in black
-        cv2.putText(frame, id_text, (text_x, text_y), font, font_scale, (0, 0, 255), 1, cv2.LINE_AA)
-
+        # Center text
+        text_size, baseline = cv2.getTextSize(id_text, font, font_scale, font_thickness)
+        text_x = (square_size - text_size[0]) // 2
+        text_y = (square_size + text_size[1]) // 2
+        
+        # Draw the id text
+        cv2.putText(id_img, id_text, (text_x, text_y), font, 
+                    font_scale, color, font_thickness, cv2.LINE_AA)
+        
+        # Draw a square outline on the image before warping
+        border_thickness = 16
+        cv2.rectangle(id_img, 
+                     (border_thickness//2, border_thickness//2), 
+                     (square_size - border_thickness//2, square_size - border_thickness//2), 
+                     color, 
+                     border_thickness)
+        
+        # Correct source points to ensure text is right-side up
+        src_pts = np.array([
+            [0, 0],                      # Top-left
+            [square_size, 0],            # Top-right
+            [square_size, square_size],  # Bottom-right
+            [0, square_size]             # Bottom-left
+        ], dtype=np.float32)
+        
+        # Warp image to marker perspective
+        dst_pts = corners.astype(np.float32)
+        transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        
+        frame_h, frame_w = frame.shape[:2]
+        warped_img = cv2.warpPerspective(
+            id_img, transform_matrix, (frame_w, frame_h),
+            flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_TRANSPARENT
+        )
+        
+        # Blend warped image into frame using mask
+        mask = np.zeros((frame_h, frame_w), dtype=np.uint8)
+        cv2.fillPoly(mask, [corners.reshape(-1, 1, 2).astype(np.int32)], 255)
+        mask = mask.astype(bool)
+        frame[mask] = warped_img[mask]
+        
+        return frame
 
     def draw_hands(self, frame, hands):
         """Draw detected hand landmarks on the frame."""
@@ -258,7 +273,7 @@ async def run_camera_client(ws_uri, width, height, fps, mirror, track_hands, deb
 def main():
     """Entry point of the application."""
     parser = argparse.ArgumentParser(description="Camera WebSocket Client")
-    parser.add_argument("--ws_uri", type=str, default="ws://192.168.1.171:7160/websocket")
+    parser.add_argument("--ws_uri", type=str, default="ws://localhost:7160/websocket")
     parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640)")
     parser.add_argument("--height", type=int, default=400, help="Frame height (default: 400)")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (default: 10)")
