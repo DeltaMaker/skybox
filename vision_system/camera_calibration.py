@@ -7,7 +7,7 @@ It saves the resulting camera matrix and distortion coefficients to a file,
 which can then be used by the marker tracking system for more accurate marker detection.
 
 Usage:
-    python camera_calibration.py [--camera CAMERA_ID] [--images NUM_IMAGES] 
+    python camera_calibration.py [--camera CAMERA_ID] [--url SNAPSHOT_URL] [--images NUM_IMAGES] 
                                 [--output CALIBRATION_FILE] [--debug]
 
 Instructions:
@@ -21,6 +21,7 @@ Instructions:
 Dependencies:
     - OpenCV (cv2)
     - NumPy
+    - Requests (for URL snapshot mode)
 """
 
 import os
@@ -30,23 +31,27 @@ import json
 import argparse
 import numpy as np
 import cv2
+import requests
 
 
 class CameraCalibrator:
-    def __init__(self, camera_id=0, board_size=(9, 6), square_size=20.0, debug=False):
+    def __init__(self, camera_id=0, snapshot_url=None, board_size=(9, 6), square_size=20.0, debug=False):
         """
         Initialize the camera calibrator.
         
         Args:
-            camera_id: Camera device ID for OpenCV
+            camera_id: Camera device ID for OpenCV (ignored if snapshot_url is provided)
+            snapshot_url: URL for fetching camera snapshots (e.g., http://localhost/webcam/?action=snapshot)
             board_size: Tuple of (columns, rows) of internal corners in the checkerboard
             square_size: Size of checkerboard squares in mm (not critical for ArUco tracking)
             debug: Enable debug output
         """
         self.camera_id = camera_id
+        self.snapshot_url = snapshot_url
         self.board_size = board_size
         self.square_size = square_size
         self.debug = debug
+        self.use_url = snapshot_url is not None
         
         # Prepare object points (0,0,0), (1,0,0), (2,0,0) ... (8,5,0)
         self.objp = np.zeros((board_size[0] * board_size[1], 3), np.float32)
@@ -61,21 +66,64 @@ class CameraCalibrator:
         
     def initialize_camera(self):
         """Initialize the camera capture."""
-        self.cap = cv2.VideoCapture(self.camera_id)
-        if not self.cap.isOpened():
-            raise ValueError(f"Failed to open camera {self.camera_id}")
-        
-        # Set resolution to HD if possible
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        
-        # Get the actual camera resolution
-        width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.image_size = (width, height)
-        
-        if self.debug:
-            print(f"Camera initialized with resolution: {width}x{height}")
+        if self.use_url:
+            # Try to get an initial image to determine resolution
+            try:
+                initial_frame = self.get_frame_from_url()
+                if initial_frame is not None:
+                    height, width = initial_frame.shape[:2]
+                    self.image_size = (width, height)
+                    if self.debug:
+                        print(f"URL camera initialized with resolution: {width}x{height}")
+                    return
+            except Exception as e:
+                raise ValueError(f"Failed to initialize from URL {self.snapshot_url}: {e}")
+        else:
+            self.cap = cv2.VideoCapture(self.camera_id)
+            if not self.cap.isOpened():
+                raise ValueError(f"Failed to open camera {self.camera_id}")
+            
+            # Set resolution to HD if possible
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            
+            # Get the actual camera resolution
+            width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.image_size = (width, height)
+            
+            if self.debug:
+                print(f"Camera initialized with resolution: {width}x{height}")
+    
+    def get_frame_from_url(self):
+        """Fetch a frame from the snapshot URL."""
+        try:
+            response = requests.get(self.snapshot_url, timeout=5.0)
+            if response.status_code != 200:
+                print(f"Error fetching image from URL: HTTP {response.status_code}")
+                return None
+                
+            # Convert to OpenCV format
+            image_array = np.frombuffer(response.content, dtype=np.uint8)
+            frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                print("Failed to decode image from URL")
+            
+            return frame
+        except Exception as e:
+            print(f"Error fetching image from URL: {e}")
+            return None
+    
+    def get_frame(self):
+        """Get a frame from either the camera or URL."""
+        if self.use_url:
+            return self.get_frame_from_url()
+        else:
+            if self.cap is None or not self.cap.isOpened():
+                self.initialize_camera()
+            ret, frame = self.cap.read()
+            return frame if ret else None
     
     def capture_calibration_frames(self, num_images=20, delay_seconds=2):
         """
@@ -88,7 +136,7 @@ class CameraCalibrator:
         Returns:
             True if enough images were captured, False otherwise
         """
-        if self.cap is None:
+        if self.image_size is None:
             self.initialize_camera()
         
         captured = 0
@@ -99,9 +147,10 @@ class CameraCalibrator:
         print(f"Will capture {num_images} images with {delay_seconds}s delay between each.\n")
         
         while captured < num_images:
-            ret, frame = self.cap.read()
-            if not ret:
+            frame = self.get_frame()
+            if frame is None:
                 print("Failed to read frame")
+                time.sleep(0.5)  # Small delay to prevent rapid error messages
                 continue
             
             # Make a copy for drawing
@@ -153,7 +202,9 @@ class CameraCalibrator:
             if cv2.waitKey(1) & 0xFF == 27:
                 break
         
-        self.cap.release()
+        # Clean up
+        if not self.use_url and self.cap is not None:
+            self.cap.release()
         cv2.destroyAllWindows()
         
         print(f"\nCapture complete. Collected {captured}/{num_images} images.")
@@ -209,7 +260,8 @@ class CameraCalibrator:
             "camera_matrix": camera_matrix.tolist(),
             "distortion_coefficients": distortion_coeffs.tolist(),
             "image_size": self.image_size,
-            "calibration_date": time.strftime("%Y-%m-%d %H:%M:%S")
+            "calibration_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "source": self.snapshot_url if self.use_url else f"camera_id_{self.camera_id}"
         }
         
         try:
@@ -240,7 +292,7 @@ class CameraCalibrator:
                     return self.save_calibration(camera_matrix, distortion_coeffs, output_file)
             return False
         finally:
-            if self.cap and self.cap.isOpened():
+            if not self.use_url and self.cap and self.cap.isOpened():
                 self.cap.release()
             cv2.destroyAllWindows()
 
@@ -250,6 +302,8 @@ def main():
     parser = argparse.ArgumentParser(description="Camera Calibration Tool")
     parser.add_argument("--camera", type=int, default=0,
                       help="Camera device ID (default: 0)")
+    parser.add_argument("--url", type=str, default=None,
+                      help="URL for snapshot images (e.g., http://localhost/webcam/?action=snapshot)")
     parser.add_argument("--images", type=int, default=20,
                       help="Number of images to capture (default: 20)")
     parser.add_argument("--output", type=str, default="camera_calibration.json",
@@ -259,7 +313,12 @@ def main():
     args = parser.parse_args()
     
     # Use 6x9 for a 7x10 checkerboard (internal corners)
-    calibrator = CameraCalibrator(camera_id=args.camera, board_size=(9, 6), debug=args.debug)
+    calibrator = CameraCalibrator(
+        camera_id=args.camera,
+        snapshot_url=args.url,
+        board_size=(9, 6),
+        debug=args.debug
+    )
     
     success = calibrator.run_calibration(num_images=args.images, output_file=args.output)
     
