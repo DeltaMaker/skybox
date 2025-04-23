@@ -63,21 +63,91 @@ import numpy as np
 import asyncio
 import argparse
 import requests
-from vision_system.marker_tracker import MarkerTracker
+from vision_system.marker_tracker import MarkerTracker, load_camera_calibration
 from vision_system.hand_tracker import HandTracker
 from websocket_server.simple_server import SimpleWebsocketServer
 
 
 class CameraServer(SimpleWebsocketServer):
-    def __init__(self, host='0.0.0.0', port=7160, base_size=None, calibration_file="camera_calibration.json", debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, base_size=None, calibration_file="camera_calibration.json", apply_undistortion=False, debug=False):
         """Initialize the base camera server."""
         super().__init__(host, port, debug)
         self.base_size = base_size  # Will be set during camera setup to actual capture resolution
-        self.marker_tracker = MarkerTracker(marker_size=0.01, calibration_file=calibration_file, debug=debug)
+        self.calibration_file = calibration_file
+        self.apply_undistortion = apply_undistortion
+        
+        # Load camera calibration data if undistortion is needed
+        self.camera_matrix = None
+        self.distortion_coeffs = None
+        if self.apply_undistortion:
+            self._load_calibration()
+        
+        # Create marker tracker with the same calibration file
+        # Set is_frame_undistorted=True if we're applying undistortion here
+        self.marker_tracker = MarkerTracker(
+            marker_size=0.01,
+            calibration_file=calibration_file,
+            is_frame_undistorted=self.apply_undistortion,
+            debug=debug
+        )
+        
         self.hand_tracker = HandTracker()
         self.frame_count = 0
         self.last_fps_print = time.time()
         self._initialize_camera()
+        
+    def _load_calibration(self):
+        """Load camera calibration for undistortion."""
+        try:
+            self.camera_matrix, self.distortion_coeffs = load_camera_calibration(
+                self.calibration_file, 
+                debug=self.debug
+            )
+            if self.debug:
+                print(f"Camera calibration loaded for undistortion")
+        except Exception as e:
+            logging.error(f"Failed to load calibration for undistortion: {e}")
+            self.apply_undistortion = False
+            if self.debug:
+                print(f"Undistortion disabled due to calibration error: {str(e)}")
+
+    def _undistort_frame(self, frame):
+        """Apply undistortion to a frame using loaded calibration data."""
+        if not self.apply_undistortion or self.camera_matrix is None or self.distortion_coeffs is None:
+            return frame
+            
+        try:
+            h, w = frame.shape[:2]
+            # Get optimal new camera matrix
+            new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
+                self.camera_matrix, 
+                self.distortion_coeffs, 
+                (w, h), 
+                1,  # Alpha parameter (1 = all pixels retained)
+                (w, h)
+            )
+            
+            # Apply undistortion
+            undistorted = cv2.undistort(
+                frame, 
+                self.camera_matrix, 
+                self.distortion_coeffs, 
+                None, 
+                new_camera_matrix
+            )
+            
+            # Crop the image to remove areas with no data (optional)
+            x, y, w, h = roi
+            if all(v > 0 for v in [x, y, w, h]):  # Only crop if ROI is valid
+                undistorted = undistorted[y:y+h, x:x+w]
+                
+            return undistorted
+        except Exception as e:
+            logging.error(f"Error undistorting frame: {e}")
+            if self.debug:
+                print(f"Undistortion error: {str(e)}")
+            # Return original frame if undistortion fails
+            return frame
 
     def _initialize_camera(self):
         """Template method for camera initialization."""
@@ -107,6 +177,11 @@ class CameraServer(SimpleWebsocketServer):
             
             if frame is None:
                 raise ValueError(f"Failed to capture {self.__class__.__name__} frame")
+                
+            # Apply undistortion if enabled
+            if self.apply_undistortion:
+                frame = self._undistort_frame(frame)
+                
             return frame
             
         except Exception as e:
@@ -228,6 +303,7 @@ class CameraServer(SimpleWebsocketServer):
         return {
             'camera_type': self.__class__.__name__,
             'base_resolution': self.base_size,
+            'undistortion': self.apply_undistortion,
             'fps_stats': {
                 'target': max(client.get('fps', 1) for client in self.clients.values()) if self.clients else 0,
                 'frame_count': self.frame_count
@@ -236,10 +312,10 @@ class CameraServer(SimpleWebsocketServer):
 
 
 class OpenCVServer(CameraServer):
-    def __init__(self, camera_id=0, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", debug=False):
+    def __init__(self, camera_id=0, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", apply_undistortion=False, debug=False):
         self.camera_id = camera_id
         self.cap = None
-        super().__init__(host, port, calibration_file=calibration_file, debug=debug)
+        super().__init__(host, port, calibration_file=calibration_file, apply_undistortion=apply_undistortion, debug=debug)
 
     def _setup_camera(self):
         self.cap = cv2.VideoCapture(self.camera_id)
@@ -267,9 +343,9 @@ class OpenCVServer(CameraServer):
 
 
 class HTTPServer(CameraServer):
-    def __init__(self, url, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", debug=False):
+    def __init__(self, url, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", apply_undistortion=False, debug=False):
         self.url = url
-        super().__init__(host, port, calibration_file=calibration_file, debug=debug)
+        super().__init__(host, port, calibration_file=calibration_file, apply_undistortion=apply_undistortion, debug=debug)
 
     def _setup_camera(self):
         response = requests.get(self.url, timeout=1.0)
@@ -291,15 +367,15 @@ class HTTPServer(CameraServer):
         return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
 class StaticJPEGServer(CameraServer):
-    def __init__(self, jpeg_path, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", debug=False):
+    def __init__(self, jpeg_path, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", apply_undistortion=False, debug=False):
         self.jpeg_path = jpeg_path
-        super().__init__(host, port, calibration_file=calibration_file, debug=debug)
+        super().__init__(host, port, calibration_file=calibration_file, apply_undistortion=apply_undistortion, debug=debug)
 
     def _setup_camera(self):
         self.static_frame = cv2.imread(self.jpeg_path)  
         if self.static_frame is None:
             raise ValueError(f"Failed to read JPEG file: {self.jpeg_path}")
-        self.base_size =  self.base_size = (self.static_frame.shape[1], self.static_frame.shape[0])  # width, height
+        self.base_size = (self.static_frame.shape[1], self.static_frame.shape[0])  # width, height
 
     def fastest_fps(self):
         """Set the FPS to 1 for static JPEG server."""
@@ -321,6 +397,8 @@ def main():
                       help="Camera device ID for OpenCV (default: 0)")
     parser.add_argument("--calibration", type=str, default="camera_calibration.json",
                       help="Camera calibration file path (default: camera_calibration.json)")
+    parser.add_argument("--undistort", action="store_true",
+                      help="Apply camera undistortion to frames")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
     parser.add_argument("--jpeg", type=str, default=None,
@@ -342,6 +420,7 @@ def main():
                 host=args.host,
                 port=args.port,
                 calibration_file=args.calibration,
+                apply_undistortion=args.undistort,
                 debug=args.debug
             )
             server.run()
@@ -352,6 +431,7 @@ def main():
                 host=args.host,
                 port=args.port,
                 calibration_file=args.calibration,
+                apply_undistortion=args.undistort,
                 debug=args.debug
             )
             server.run()
@@ -362,6 +442,7 @@ def main():
                 host=args.host,
                 port=args.port,
                 calibration_file=args.calibration,
+                apply_undistortion=args.undistort,
                 debug=args.debug
             )
             server.run()
