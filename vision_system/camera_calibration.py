@@ -8,7 +8,7 @@ which can then be used by the marker tracking system for more accurate marker de
 
 Usage:
     python camera_calibration.py [--camera CAMERA_ID] [--url SNAPSHOT_URL] [--images NUM_IMAGES] 
-                                [--output CALIBRATION_FILE] [--debug]
+                                [--output CALIBRATION_FILE] [--debug] [--headless]
 
 Instructions:
     1. Print a 7x10 checkerboard pattern (internal corners: 6x9)
@@ -35,7 +35,7 @@ import requests
 
 
 class CameraCalibrator:
-    def __init__(self, camera_id=0, snapshot_url=None, board_size=(9, 6), square_size=20.0, debug=False):
+    def __init__(self, camera_id=0, snapshot_url=None, board_size=(9, 6), square_size=20.0, debug=False, headless=False):
         """
         Initialize the camera calibrator.
         
@@ -45,12 +45,14 @@ class CameraCalibrator:
             board_size: Tuple of (columns, rows) of internal corners in the checkerboard
             square_size: Size of checkerboard squares in mm (not critical for ArUco tracking)
             debug: Enable debug output
+            headless: Run without GUI display
         """
         self.camera_id = camera_id
         self.snapshot_url = snapshot_url
         self.board_size = board_size
         self.square_size = square_size
         self.debug = debug
+        self.headless = headless
         self.use_url = snapshot_url is not None
         
         # Prepare object points (0,0,0), (1,0,0), (2,0,0) ... (8,5,0)
@@ -146,66 +148,109 @@ class CameraCalibrator:
         print("Position the checkerboard in different orientations.")
         print(f"Will capture {num_images} images with {delay_seconds}s delay between each.\n")
         
-        while captured < num_images:
-            frame = self.get_frame()
-            if frame is None:
-                print("Failed to read frame")
-                time.sleep(0.5)  # Small delay to prevent rapid error messages
-                continue
-            
-            # Make a copy for drawing
-            display_frame = frame.copy()
-            
-            # Convert to grayscale
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Find the chessboard corners
-            ret, corners = cv2.findChessboardCorners(gray, self.board_size, None)
-            
-            # If found, add object points and image points
-            current_time = time.time()
-            time_to_next = max(0, delay_seconds - (current_time - last_capture_time))
-            
-            if ret:
-                # Draw corners on the display frame
-                cv2.drawChessboardCorners(display_frame, self.board_size, corners, ret)
-                
-                # Display countdown if we're waiting to capture
-                if time_to_next > 0:
-                    # Show countdown
-                    cv2.putText(display_frame, f"Next capture in: {time_to_next:.1f}s", 
-                               (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                elif captured < num_images:
-                    # Refine corners for better accuracy
-                    corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), 
-                                               (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
-                    
-                    self.objpoints.append(self.objp)
-                    self.imgpoints.append(corners2)
-                    
-                    captured += 1
-                    last_capture_time = current_time
-                    
-                    # Show confirmation text
-                    cv2.putText(display_frame, f"Captured {captured}/{num_images}", 
-                               (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    print(f"Captured image {captured}/{num_images}")
-            
-            # Show instructions
-            cv2.putText(display_frame, "Position checkerboard in view", 
-                       (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-            
-            # Display the resulting frame
-            cv2.imshow('Camera Calibration', display_frame)
-            
-            # Break loop on ESC key
-            if cv2.waitKey(1) & 0xFF == 27:
-                break
+        if self.headless:
+            print("Running in headless mode.")
+            print("Press ENTER to capture an image when the checkerboard is in position.")
+            print("Press Ctrl+C at any time to cancel.")
         
-        # Clean up
-        if not self.use_url and self.cap is not None:
-            self.cap.release()
-        cv2.destroyAllWindows()
+        try:
+            while captured < num_images:
+                frame = self.get_frame()
+                if frame is None:
+                    print("Failed to read frame")
+                    time.sleep(0.5)  # Small delay to prevent rapid error messages
+                    continue
+                
+                # Make a copy for drawing
+                display_frame = frame.copy()
+                
+                # Convert to grayscale
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                
+                # Find the chessboard corners
+                ret, corners = cv2.findChessboardCorners(gray, self.board_size, None)
+                
+                # If found, draw corners on display frame
+                if ret:
+                    # Draw corners on the display frame if not headless
+                    if not self.headless:
+                        cv2.drawChessboardCorners(display_frame, self.board_size, corners, ret)
+                    
+                    current_time = time.time()
+                    time_to_next = max(0, delay_seconds - (current_time - last_capture_time))
+                    
+                    # In headless mode, wait for user input to capture
+                    if self.headless:
+                        if ret:
+                            print(f"Checkerboard detected! Press ENTER to capture, or 'q' then ENTER to quit.")
+                            user_input = input().strip().lower()
+                            if user_input == 'q':
+                                print("Capture cancelled by user.")
+                                break
+                                
+                            # Capture the image
+                            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), 
+                                                      (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+                            
+                            self.objpoints.append(self.objp)
+                            self.imgpoints.append(corners2)
+                            
+                            captured += 1
+                            last_capture_time = current_time
+                            
+                            print(f"Captured image {captured}/{num_images}")
+                            print(f"Position checkerboard differently and press ENTER for next capture.")
+                        else:
+                            print("No checkerboard detected. Reposition and try again.")
+                            time.sleep(1)
+                    else:
+                        # GUI mode handling
+                        # Display countdown if we're waiting to capture
+                        if time_to_next > 0:
+                            # Show countdown
+                            cv2.putText(display_frame, f"Next capture in: {time_to_next:.1f}s", 
+                                      (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                        elif captured < num_images:
+                            # Refine corners for better accuracy
+                            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), 
+                                                      (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+                            
+                            self.objpoints.append(self.objp)
+                            self.imgpoints.append(corners2)
+                            
+                            captured += 1
+                            last_capture_time = current_time
+                            
+                            # Show confirmation text
+                            cv2.putText(display_frame, f"Captured {captured}/{num_images}", 
+                                      (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                            print(f"Captured image {captured}/{num_images}")
+                
+                # In GUI mode, show frames and check for ESC key
+                if not self.headless:
+                    # Show instructions
+                    cv2.putText(display_frame, "Position checkerboard in view", 
+                              (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    
+                    # Display the resulting frame
+                    cv2.imshow('Camera Calibration', display_frame)
+                    
+                    # Break loop on ESC key
+                    if cv2.waitKey(1) & 0xFF == 27:
+                        break
+                else:
+                    # In headless mode, just wait a bit
+                    if not ret:
+                        time.sleep(0.5)
+                
+        except KeyboardInterrupt:
+            print("\nCalibration interrupted by user.")
+        finally:
+            # Clean up
+            if not self.use_url and self.cap is not None:
+                self.cap.release()
+            if not self.headless:
+                cv2.destroyAllWindows()
         
         print(f"\nCapture complete. Collected {captured}/{num_images} images.")
         return captured >= 5  # Need at least 5 images for a decent calibration
@@ -294,7 +339,8 @@ class CameraCalibrator:
         finally:
             if not self.use_url and self.cap and self.cap.isOpened():
                 self.cap.release()
-            cv2.destroyAllWindows()
+            if not self.headless:
+                cv2.destroyAllWindows()
 
 
 def main():
@@ -308,8 +354,12 @@ def main():
                       help="Number of images to capture (default: 20)")
     parser.add_argument("--output", type=str, default="camera_calibration.json",
                       help="Output file path (default: camera_calibration.json)")
+    parser.add_argument("--square-size", type=float, default=20.0,
+                      help="Size of checkerboard squares in mm (default: 20.0)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
+    parser.add_argument("--headless", action="store_true",
+                      help="Run in headless mode without GUI windows")
     args = parser.parse_args()
     
     # Use 6x9 for a 7x10 checkerboard (internal corners)
@@ -317,7 +367,9 @@ def main():
         camera_id=args.camera,
         snapshot_url=args.url,
         board_size=(9, 6),
-        debug=args.debug
+        square_size=args.square_size,
+        debug=args.debug,
+        headless=args.headless
     )
     
     success = calibrator.run_calibration(num_images=args.images, output_file=args.output)
