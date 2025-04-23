@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import cv2.aruco as aruco
 import json
+import os
 
 
 def convert_numpy_types(obj):
@@ -18,13 +19,48 @@ def convert_numpy_types(obj):
     return obj
 
 class MarkerTracker:
-    def __init__(self, marker_size=0.01, dictionary_id=cv2.aruco.DICT_4X4_100, debug=False):
+    def __init__(self, marker_size=0.01, dictionary_id=cv2.aruco.DICT_4X4_100, calibration_file="camera_calibration.json", debug=False):
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
         self.detector = cv2.aruco  # Use the aruco module directly for detecting markers
         self.marker_size = marker_size
-        self.camera_matrix, self.distortion_coeffs = self.default_camera_calibration()
-        self.corners = self.ids = None
         self.debug = debug
+        
+        # Try to load camera calibration from file, use default if not available
+        self.camera_matrix, self.distortion_coeffs = self.load_camera_calibration(calibration_file)
+        self.corners = self.ids = None
+
+    def load_camera_calibration(self, calibration_file):
+        """
+        Load camera calibration parameters from a file.
+        Falls back to default calibration if file is not available.
+        
+        Args:
+            calibration_file: Path to the calibration file
+            
+        Returns:
+            Tuple of (camera_matrix, distortion_coefficients)
+        """
+        try:
+            if os.path.exists(calibration_file):
+                with open(calibration_file, 'r') as f:
+                    calibration_data = json.load(f)
+                
+                camera_matrix = np.array(calibration_data['camera_matrix'])
+                distortion_coeffs = np.array(calibration_data['distortion_coefficients'])
+                
+                if self.debug:
+                    print(f"Loaded camera calibration from {calibration_file}")
+                    print(f"Camera matrix shape: {camera_matrix.shape}")
+                    print(f"Distortion coefficients shape: {distortion_coeffs.shape}")
+                
+                return camera_matrix, distortion_coeffs
+        except Exception as e:
+            if self.debug:
+                print(f"Error loading calibration file: {e}")
+                print("Using default camera calibration")
+        
+        # Fall back to default calibration
+        return self.default_camera_calibration()
 
     def default_camera_calibration(self, image_width=640, image_height=480):
         focal_length = image_width if image_width > image_height else image_height

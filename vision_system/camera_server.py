@@ -69,11 +69,11 @@ from websocket_server.simple_server import SimpleWebsocketServer
 
 
 class CameraServer(SimpleWebsocketServer):
-    def __init__(self, host='0.0.0.0', port=7160, base_size=None, debug=False):
+    def __init__(self, host='0.0.0.0', port=7160, base_size=None, calibration_file="camera_calibration.json", debug=False):
         """Initialize the base camera server."""
         super().__init__(host, port, debug)
         self.base_size = base_size  # Will be set during camera setup to actual capture resolution
-        self.marker_tracker = MarkerTracker(marker_size=0.01, debug=debug)
+        self.marker_tracker = MarkerTracker(marker_size=0.01, calibration_file=calibration_file, debug=debug)
         self.hand_tracker = HandTracker()
         self.frame_count = 0
         self.last_fps_print = time.time()
@@ -236,10 +236,10 @@ class CameraServer(SimpleWebsocketServer):
 
 
 class OpenCVServer(CameraServer):
-    def __init__(self, camera_id=0, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, camera_id=0, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", debug=False):
         self.camera_id = camera_id
         self.cap = None
-        super().__init__(host, port, debug)
+        super().__init__(host, port, calibration_file=calibration_file, debug=debug)
 
     def _setup_camera(self):
         self.cap = cv2.VideoCapture(self.camera_id)
@@ -267,9 +267,9 @@ class OpenCVServer(CameraServer):
 
 
 class HTTPServer(CameraServer):
-    def __init__(self, url, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, url, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", debug=False):
         self.url = url
-        super().__init__(host, port, debug)
+        super().__init__(host, port, calibration_file=calibration_file, debug=debug)
 
     def _setup_camera(self):
         response = requests.get(self.url, timeout=1.0)
@@ -291,9 +291,9 @@ class HTTPServer(CameraServer):
         return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
 class StaticJPEGServer(CameraServer):
-    def __init__(self, jpeg_path, host='0.0.0.0', port=7160, debug=False):
+    def __init__(self, jpeg_path, host='0.0.0.0', port=7160, calibration_file="camera_calibration.json", debug=False):
         self.jpeg_path = jpeg_path
-        super().__init__(host, port, debug)
+        super().__init__(host, port, calibration_file=calibration_file, debug=debug)
 
     def _setup_camera(self):
         self.static_frame = cv2.imread(self.jpeg_path)  
@@ -319,6 +319,8 @@ def main():
                       help="Video stream URL")
     parser.add_argument("--camera", type=int, default=0,
                       help="Camera device ID for OpenCV (default: 0)")
+    parser.add_argument("--calibration", type=str, default="camera_calibration.json",
+                      help="Camera calibration file path (default: camera_calibration.json)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
     parser.add_argument("--jpeg", type=str, default=None,
@@ -339,6 +341,7 @@ def main():
                 jpeg_path=args.jpeg,
                 host=args.host,
                 port=args.port,
+                calibration_file=args.calibration,
                 debug=args.debug
             )
             server.run()
@@ -348,18 +351,20 @@ def main():
                 url=args.url,
                 host=args.host,
                 port=args.port,
+                calibration_file=args.calibration,
                 debug=args.debug
             )
             server.run()
         else:
             logging.info(f"Starting OpenCV camera server on {args.host}:{args.port}")
             server = OpenCVServer(
-            camera_id=args.camera,
-            host=args.host,
-            port=args.port,
-            debug=args.debug
-        )
-        server.run()
+                camera_id=args.camera,
+                host=args.host,
+                port=args.port,
+                calibration_file=args.calibration,
+                debug=args.debug
+            )
+            server.run()
     except KeyboardInterrupt:
         logging.info("\nShutting down server...")
     except Exception as e:
