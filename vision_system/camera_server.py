@@ -3,38 +3,50 @@ Camera Server Implementation
 ==========================
 
 A flexible and extensible camera streaming server that supports multiple camera types
-and provides real-time computer vision capabilities.
+and provides real-time computer vision capabilities with integrated debugging.
 
 Key Features:
 ------------
-- Supports multiple camera types (OpenCV, HTTP stream)
+- Supports multiple camera types (OpenCV, HTTP stream, Static JPEG)
 - Real-time video streaming over WebSocket
+- Camera undistortion using calibration matrices
 - Marker tracking for ArUco markers
 - Hand tracking capabilities
 - Configurable frame rates and resolutions per client
 - Automatic frame resizing and mirroring
 - FPS monitoring and performance statistics
 - Asynchronous client handling
+- Robust debugging with configurable debug levels
 
 Architecture:
 ------------
+- Utility function for loading camera calibration
 - Base CameraServer class providing core functionality
 - Specialized implementations for different camera types:
   * OpenCVServer: For local camera devices
   * HTTPServer: For IP cameras or HTTP video streams
+  * StaticJPEGServer: For serving a static image (useful for testing)
 
 Usage:
 ------
 1. Direct usage:
    ```python
-   server = OpenCVServer(camera_id=0, port=7160)
+   server = OpenCVServer(camera_index=0, port=7160, apply_undistortion=True, 
+                         calibration_file="camera_calibration.json")
    server.run()
    ```
 
 2. Command line:
    ```bash
-   python camera_server.py --port 7160 --camera 0 --debug
+   python camera_server.py --port 7160 --camera 0 --debug --undistort
    ```
+
+Debug Levels:
+------------
+- 1: Error messages only
+- 2: Warnings and errors
+- 3: Informational messages
+- 4: Verbose logging
 
 Dependencies:
 ------------
@@ -44,10 +56,11 @@ Dependencies:
 - requests (for HTTP cameras)
 - vision_system.marker_tracker
 - vision_system.hand_tracker
+- websocket_server.simple_server
 
 Author: Bob Houston
-Version: 0.1
-Date: 2025-03-22
+Version: 0.2
+Date: 2025-03-25
 """
 import os
 import sys
@@ -103,14 +116,12 @@ def load_camera_calibration(calibration_file, debug=False):
 
 class CameraServer(SimpleWebsocketServer):
     def __init__(self, host='0.0.0.0', port=7160, base_size=None, calibration_file="camera_calibration.json", 
-                 apply_undistortion=False, undistort_alpha=0.8, undistort_sharpen=False, debug=False, debug_level=2):
+                 apply_undistortion=False, debug=False, debug_level=2):
         """Initialize the base camera server."""
         super().__init__(host, port, debug=debug, debug_level=debug_level)
         self.base_size = base_size  # Will be set during camera setup to actual capture resolution
         self.calibration_file = calibration_file
         self.apply_undistortion = apply_undistortion
-        self.undistort_alpha = undistort_alpha
-        self.undistort_sharpen = undistort_sharpen
         
         # Load camera calibration data if undistortion is needed
         self.camera_matrix = None
@@ -148,65 +159,30 @@ class CameraServer(SimpleWebsocketServer):
 
     def _undistort_frame(self, frame):
         """
-        Apply undistortion to a frame using loaded calibration data.
-        
-        Uses configurable alpha parameter to control balance between:
-        - Zoomed view (alpha=0) with all pixels valid but smaller FOV
-        - Full FOV (alpha=1) with black regions but no cropping
-        
-        Optionally applies sharpening after undistortion to improve image quality.
+        Apply camera undistortion to a frame using the loaded calibration data.
         
         Returns:
             Undistorted frame if successful, original frame otherwise
         """
-        # Early return if undistortion is disabled or calibration data is missing
+        # Return original frame if undistortion is disabled or calibration data is missing
         if not self.apply_undistortion or self.camera_matrix is None or self.distortion_coeffs is None:
             return frame
             
         try:
             h, w = frame.shape[:2]
             
-            # Get optimal new camera matrix with configurable alpha parameter
-            # - alpha=0: zoomed view with all pixels valid (tighter crop)
-            # - alpha=1: full FOV with potentially black regions (no crop)
-            new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
-                self.camera_matrix, 
-                self.distortion_coeffs, 
-                (w, h), 
-                self.undistort_alpha,  # Configurable alpha parameter
-                (w, h)
-            )
-            
-            # Apply undistortion with higher quality interpolation
+            # Apply basic undistortion with default parameters
             undistorted = cv2.undistort(
                 frame, 
                 self.camera_matrix, 
-                self.distortion_coeffs, 
-                None, 
-                new_camera_matrix,
+                self.distortion_coeffs
             )
             
-            # Only crop the image if alpha is close to 0 (which provides valid ROI)
-            if self.undistort_alpha < 0.1:
-                x, y, w, h = roi
-                if all(v > 0 for v in [x, y, w, h]):  # Only crop if ROI is valid
-                    undistorted = undistorted[y:y+h, x:x+w]
-            
-            # Apply sharpening if enabled
-            if self.undistort_sharpen:
-                # Create a sharpening kernel
-                kernel = np.array([[-0.5, -0.5, -0.5],
-                                  [-0.5,  5.0, -0.5],
-                                  [-0.5, -0.5, -0.5]])
-                undistorted = cv2.filter2D(undistorted, -1, kernel)
-                
-            # Log successful undistortion at verbose level
-            self.debug_log(f"Frame undistorted successfully with alpha={self.undistort_alpha}", 4)
+            self.debug_log(f"Frame undistorted successfully", 4)
             return undistorted
             
         except Exception as e:
             self.debug_log(f"Error undistorting frame: {e}", 1)
-            self.debug_log(f"Undistortion error: {str(e)}", 2)
             # Return original frame if undistortion fails
             return frame
 
@@ -371,15 +347,13 @@ class OpenCVServer(CameraServer):
     """Camera server that uses OpenCV to capture frames from a webcam."""
     
     def __init__(self, camera_index=0, resolution=None, host='0.0.0.0', port=7160, 
-                 calibration_file="camera_calibration.json", apply_undistortion=False, 
-                 undistort_alpha=0.8, undistort_sharpen=False, fps=30, debug=False, debug_level=2):
+                 calibration_file="camera_calibration.json", apply_undistortion=False, fps=30, debug=False, debug_level=2):
         """Initialize the OpenCV camera server with the specified camera index."""
         self.camera_index = camera_index
         self.fps = fps
         self.resolution = resolution  # Can be None, (width, height), or "4k", "1080p", "720p", etc.
         super().__init__(host, port, base_size=resolution, calibration_file=calibration_file,
-                        apply_undistortion=apply_undistortion, undistort_alpha=undistort_alpha,
-                        undistort_sharpen=undistort_sharpen, debug=debug, debug_level=debug_level)
+                        apply_undistortion=apply_undistortion, debug=debug, debug_level=debug_level)
 
     def _setup_camera(self):
         self.cap = cv2.VideoCapture(self.camera_index)
@@ -409,14 +383,12 @@ class HTTPServer(CameraServer):
     """Camera server that captures frames from an HTTP stream."""
     
     def __init__(self, url, fps=10, host='0.0.0.0', port=7160, 
-                 calibration_file="camera_calibration.json", apply_undistortion=False, 
-                 undistort_alpha=0.8, undistort_sharpen=False, debug=False, debug_level=2):
+                 calibration_file="camera_calibration.json", apply_undistortion=False, debug=False, debug_level=2):
         """Initialize the HTTP camera server with the specified URL."""
         self.url = url
         self.fps = fps
         super().__init__(host, port, calibration_file=calibration_file,
-                        apply_undistortion=apply_undistortion, undistort_alpha=undistort_alpha,
-                        undistort_sharpen=undistort_sharpen, debug=debug, debug_level=debug_level)
+                        apply_undistortion=apply_undistortion, debug=debug, debug_level=debug_level)
 
     def _setup_camera(self):
         response = requests.get(self.url, timeout=1.0)
@@ -444,14 +416,12 @@ class StaticJPEGServer(CameraServer):
     """Camera server that serves a static JPEG image for testing."""
     
     def __init__(self, image_path, fps=10, host='0.0.0.0', port=7160, 
-                 calibration_file="camera_calibration.json", apply_undistortion=False, 
-                 undistort_alpha=0.8, undistort_sharpen=False, debug=False, debug_level=2):
+                 calibration_file="camera_calibration.json", apply_undistortion=False, debug=False, debug_level=2):
         """Initialize the static JPEG server with the specified image path."""
         self.image_path = image_path
         self.fps = fps
         super().__init__(host, port, calibration_file=calibration_file,
-                        apply_undistortion=apply_undistortion, undistort_alpha=undistort_alpha,
-                        undistort_sharpen=undistort_sharpen, debug=debug, debug_level=debug_level)
+                        apply_undistortion=apply_undistortion, debug=debug, debug_level=debug_level)
 
     def _setup_camera(self):
         self.static_frame = cv2.imread(self.image_path)  
@@ -474,7 +444,7 @@ def main():
                       help="Host address to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=7160,
                       help="Port number to listen on (default: 7160)")
-    parser.add_argument("--url", type=str, default="http://192.168.1.131/webcam/?action=snapshot",
+    parser.add_argument("--url", type=str, default=None,
                       help="Video stream URL")
     parser.add_argument("--camera", type=int, default=0,
                       help="Camera device ID for OpenCV (default: 0)")
