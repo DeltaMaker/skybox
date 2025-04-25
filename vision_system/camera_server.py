@@ -39,6 +39,8 @@ Usage:
 2. Command line:
    ```bash
    python camera_server.py --port 7160 --camera 0 --debug --undistort
+   or
+   python camera_server.py --port 7160 --jpeg vision_system/skycam0410-5.jpeg --debug --undistort
    ```
 
 Debug Levels:
@@ -211,9 +213,13 @@ class CameraServer(SimpleWebsocketServer):
             if frame is None:
                 raise ValueError(f"Failed to capture {self.__class__.__name__} frame")
                 
+            #cv2.imshow('frame', frame)
             # Always apply undistortion if enabled - this ensures all frames are processed consistently
             if self.apply_undistortion and self.camera_matrix is not None and self.distortion_coeffs is not None:
                 frame = self._undistort_frame(frame)
+                
+                #cv2.imshow('undistorted frame', frame)
+                #cv2.waitKey(0)
                 
             return frame
             
@@ -323,6 +329,7 @@ class CameraServer(SimpleWebsocketServer):
         try:
             self.debug_log(f"Cleaning up {self.__class__.__name__}", 3)
             self._cleanup_camera()
+            cv2.destroyAllWindows()
         except Exception as e:
             self.debug_log(f"Error cleaning up {self.__class__.__name__}: {e}", 1)
 

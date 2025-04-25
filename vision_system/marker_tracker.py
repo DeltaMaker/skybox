@@ -32,16 +32,51 @@ class MarkerTracker:
             is_frame_undistorted: Whether frames passed to process_frame are already undistorted
             debug: Enable debug output
         """
-        self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
-        self.detector = cv2.aruco  # Use the aruco module directly for detecting markers
+        # In newer OpenCV versions (4.7+), we need to use the new ArUco API
+        try:
+            # First try the modern API (OpenCV 4.7+)
+            self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
+            self.parameters = cv2.aruco.DetectorParameters()
+            self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
+            self.use_new_api = True
+            if debug:
+                print("Using new ArUco detector API")
+        except (AttributeError, TypeError):
+            # Fall back to the old API
+            self.aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
+            try:
+                self.parameters = cv2.aruco.DetectorParameters_create()
+                self.parameters.adaptiveThreshConstant = 10
+                self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+            except AttributeError:
+                # If even this fails, just use without parameters
+                self.parameters = None
+            self.detector = cv2.aruco  # Use the aruco module directly
+            self.use_new_api = False
+            if debug:
+                print("Using legacy ArUco detector API")
+
         self.marker_size = marker_size
         self.debug = debug
         self.is_frame_undistorted = is_frame_undistorted
         
         # Store calibration info
-        self.camera_matrix = camera_matrix
-        self.distortion_coeffs = distortion_coeffs
+        if camera_matrix is not None and distortion_coeffs is not None:
+            self.camera_matrix = camera_matrix
+            self.distortion_coeffs = distortion_coeffs
+        else:
+            self.camera_matrix, self.distortion_coeffs = self.default_camera_calibration()
         self.corners = self.ids = None
+
+    def default_camera_calibration(self, image_width=640, image_height=480):
+        focal_length = image_width if image_width > image_height else image_height
+        center = (image_width / 2, image_height / 2)
+        camera_matrix = np.array([[focal_length, 0, center[0]],
+                                  [0, focal_length, center[1]],
+                                  [0, 0, 1]], dtype="double")
+        distortion_coeffs = np.zeros((4, 1))
+        return camera_matrix, distortion_coeffs
+
 
     def process_frame(self, frame):
         """Detect ARUCO markers in the frame and return normalized coordinates.
@@ -60,11 +95,23 @@ class MarkerTracker:
         
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # Detect markers with standard parameters
-        # No longer passing cameraMatrix/distCoeff to detectMarkers as they're not valid parameters
-        self.corners, self.ids, _ = self.detector.detectMarkers(
-            gray, self.aruco_dict
-        )
+        # Detect markers using the appropriate API
+        if self.use_new_api:
+            # New API (OpenCV 4.7+)
+            corners, ids, rejected = self.detector.detectMarkers(gray)
+        else:
+            # Legacy API
+            if self.parameters is not None:
+                corners, ids, rejected = self.detector.detectMarkers(
+                    gray, self.aruco_dict, parameters=self.parameters
+                )
+            else:
+                corners, ids, rejected = self.detector.detectMarkers(
+                    gray, self.aruco_dict
+                )
+                
+        self.corners = corners
+        self.ids = ids
         
         marker_data = []
 

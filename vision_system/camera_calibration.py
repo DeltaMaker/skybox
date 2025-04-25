@@ -32,6 +32,7 @@ import argparse
 import numpy as np
 import cv2
 import requests
+import re
 
 
 class CameraCalibrator:
@@ -260,7 +261,7 @@ class CameraCalibrator:
         Perform the calibration calculation.
         
         Returns:
-            Tuple of (camera_matrix, distortion_coefficients) or None if calibration failed
+            Tuple of (camera_matrix, distortion_coefficients, reprojection_error) or None if calibration failed
         """
         if not self.imgpoints:
             print("No calibration data collected!")
@@ -283,12 +284,44 @@ class CameraCalibrator:
             error = cv2.norm(self.imgpoints[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
             mean_error += error
         
+        reprojection_error = mean_error/len(self.objpoints)
         print(f"Calibration successful!")
-        print(f"Average reprojection error: {mean_error/len(self.objpoints)}")
+        print(f"Average reprojection error: {reprojection_error}")
         
-        return camera_matrix, distortion_coeffs
+        return camera_matrix, distortion_coeffs, reprojection_error
     
-    def save_calibration(self, camera_matrix, distortion_coeffs, output_file):
+    def generate_default_filename(self):
+        """
+        Generate a meaningful filename based on the calibration source.
+        
+        Returns:
+            A string containing an appropriate filename
+        """
+        if self.use_url:
+            # Remove protocol (http://, https://, etc.)
+            clean_name = self.snapshot_url.split("://")[-1]
+            
+            # Remove query parameters
+            clean_name = clean_name.split("?")[0]
+            
+            # Replace all non-alphanumeric characters with hyphens
+            clean_name = re.sub(r'[^a-zA-Z0-9]', '-', clean_name)
+            
+            # Replace multiple consecutive hyphens with a single hyphen
+            clean_name = re.sub(r'-+', '-', clean_name)
+            
+            # Strip leading and trailing hyphens
+            clean_name = clean_name.strip('-')
+            
+            if clean_name:
+                return f"{clean_name}.json"
+            else:
+                return "camera_calibration.json"
+        else:
+            # For camera IDs, use the ID in the filename
+            return f"camera-id-{self.camera_id}.json"
+    
+    def save_calibration(self, camera_matrix, distortion_coeffs, output_file, reprojection_error):
         """
         Save the calibration results to a file.
         
@@ -296,6 +329,7 @@ class CameraCalibrator:
             camera_matrix: The calculated camera matrix
             distortion_coeffs: The calculated distortion coefficients
             output_file: Path to the output file
+            reprojection_error: Average reprojection error from calibration
         
         Returns:
             True if successful, False otherwise
@@ -306,19 +340,28 @@ class CameraCalibrator:
             "distortion_coefficients": distortion_coeffs.tolist(),
             "image_size": self.image_size,
             "calibration_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "source": self.snapshot_url if self.use_url else f"camera_id_{self.camera_id}"
+            "source": self.snapshot_url if self.use_url else f"camera_id_{self.camera_id}",
+            "reprojection_error": float(reprojection_error)
         }
         
+        if output_file is None:
+            output_file = self.generate_default_filename()
         try:
+            json_string = json.dumps(calibration_data)
+            tokens = json_string.split(" ")
+        
             with open(output_file, 'w') as f:
-                json.dump(calibration_data, f, indent=4)
+                for token in tokens:
+                    if token.endswith(':'):
+                        f.write('   \n')
+                    f.write(token + ' ')
             print(f"Calibration data saved to {output_file}")
             return True
         except Exception as e:
             print(f"Error saving calibration data: {e}")
             return False
     
-    def run_calibration(self, num_images=20, output_file="camera_calibration.json"):
+    def run_calibration(self, num_images=20, output_file=None):
         """
         Run the full calibration process.
         
@@ -333,8 +376,8 @@ class CameraCalibrator:
             if self.capture_calibration_frames(num_images):
                 results = self.calibrate()
                 if results:
-                    camera_matrix, distortion_coeffs = results
-                    return self.save_calibration(camera_matrix, distortion_coeffs, output_file)
+                    camera_matrix, distortion_coeffs, reprojection_error = results
+                    return self.save_calibration(camera_matrix, distortion_coeffs, output_file, reprojection_error)
             return False
         finally:
             if not self.use_url and self.cap and self.cap.isOpened():
@@ -352,10 +395,10 @@ def main():
                       help="URL for snapshot images (e.g., http://localhost/webcam/?action=snapshot)")
     parser.add_argument("--images", type=int, default=20,
                       help="Number of images to capture (default: 20)")
-    parser.add_argument("--output", type=str, default="camera_calibration.json",
+    parser.add_argument("--output", type=str, default=None,
                       help="Output file path (default: camera_calibration.json)")
-    parser.add_argument("--square-size", type=float, default=20.0,
-                      help="Size of checkerboard squares in mm (default: 20.0)")
+    parser.add_argument("--square-size", type=float, default=21.15,
+                      help="Size of checkerboard squares in mm (default: 21.15)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug output")
     parser.add_argument("--headless", action="store_true",

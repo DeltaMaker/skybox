@@ -215,8 +215,8 @@ class CameraViewer:
             frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
             
             if frame is not None:
-                h, w = frame.shape[:2]
-                frame = cv2.resize(frame, (2*w, 2*h))
+                #h, w = frame.shape[:2]
+                #frame = cv2.resize(frame, (2*w, 2*h))
                 frame = self.draw_markers(frame, self.markers)
                 frame = self.draw_hands(frame, self.hands)
                 frame = self.draw_dimensions(frame)  # Add dimensions overlay
